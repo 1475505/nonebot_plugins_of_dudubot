@@ -146,13 +146,97 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         A
         只有 B
         可以 C
+        
+        示例：
+        请谅解
+        今天
+        只有 中国人
+        可以 玩原神
         """ 
-        prompt2 = f"""请将文本{replied_content}改写成下面的格式, 基于文本, 允许少量自由发挥（A/B 改写为相关 4 个字以内的对立概念, **改为相关的短句. 严格按照此格式，不要输出其他内容）:
-        A是这样的。B只需要负责**就可以了，而A要考虑的事情就多了.
+        prompt2 = f"""请将文本{replied_content}改写成下面的格式, 基于文本, 允许少量自由发挥（A/B 改写为相关 4 个字以内的对立概念, C改为相关的短句. 严格按照此格式，不要输出其他内容）:
+        A是这样的。B只需要负责C就可以了，而A要考虑的事情就多了.
+
+        示例：后方是这样的。前线的将士只要全身心投入到战场中，听命行事，奋力杀敌就可以，可是后方人员要考虑的事情就很多了。
+        """
+        prompt3 = f"""请将文本{replied_content}改写成下面的格式, 基于文本, 允许少量自由发挥，可增加适量的讽刺色彩（A和B为名词，C为一种动作，意为A只有在主体为B的条件下才能做动作C. D可以为一个第三方旁观者名词. 严格按照此格式，不要输出其他内容）:
+        请谅解
+        A
+        只有 B
+        可以 C
+        D 要考虑的事情就多了.
         """
         prompt = prompt1
-        if p > 0.8:
+        if p > 0.5:
             prompt = prompt2
+        if p > 0.9:
+            prompt = prompt3
         #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
         response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
         await mc.finish("\n"+response.content, at_sender=True)
+
+
+htx = on_command("何式", priority=13, block=True)
+@htx.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+      # 检查是否包含回复信息
+    replied_content = "我玩原神从不抽卡"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+    else:
+        replied_content = msg.extract_plain_text()
+    #if replied_message.reply:
+    #    replied_content = replied_message.reply.message.extract_plain_text(a
+    p = random.random()
+    prompt1 = f"""任务：接下来，我将给你一段基准文本，然后，你需要将输入的文本改写成基准文本类似的语言和文本格式, 需要保证段落结构的一致性和通顺性。请严格进行改写。
+    基准文本：以前打网约车，司机师傅跟我说打个好评，我都会说好好好，但是下车后也没想起来打。其实这样挺不好的。现在司机师傅跟我说打个好评，除非服务真的很好到我想打好评的程度，否则我就会直接说，抱歉我不想打，然后下车。作为一个有讨好倾向的人，这是我锻炼真诚和勇气的方式。
+
+    示例：
+    输入文本：我看B站视频不喜欢一键三连。
+    输出文本：以前看何同学的视频，他总说记得一键三连，我都会说好好好，但退出后也没想起来按。其实这样挺不礼貌的。 现在何同学再提一键三连，除非视频真的有趣到让我想掏硬币，否则我就直接说：「抱歉，您的视频暂时无法三连」，然后退出全屏。作为一个有原则的观众，这是我锻炼自我和解与节能环保的方式。
+
+    接下来，请对下面的输入文本进行改写，只输出对应改写后的输出文本，不要输出其他内容,不要输出其他内容,不要输出其他内容。
+    输入文本：{replied_content}
+    """
+    prompt = prompt1
+    #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
+    response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+    await htx.finish("\n"+response.content, at_sender=True)
+
+from . import xf_ocr
+ocr = on_command("ocr", priority=13, block=True)
+@ocr.handle()
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
+      # 检查是否包含回复信息
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        for seg in replied_message:
+            if seg.type == "image":
+                img_url = seg.data["url"]
+                txt = xf_ocr.ocr(img_url)
+                if len(txt) < 30:
+                    await ocr.finish(txt)
+                else:
+                    # 将长文本分段
+                    segments = [txt[i:i+1000] for i in range(0, len(txt), 1000)]
+                    messages = []
+                    
+                    # 创建转发消息节点
+                    for index, segment in enumerate(segments, 1):
+                        messages.append({
+                            "type": "node",
+                            "data": {
+                                "name": "OCR结果",
+                                "uin": event.self_id,
+                                "content": f"第{index}部分：\n{segment}"
+                            }
+                        })
+                    
+                    # 发送合并转发消息
+                    await bot.call_api(
+                        "send_group_forward_msg",
+                        group_id=event.group_id,
+                        messages=messages
+                    )
