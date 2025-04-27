@@ -140,7 +140,6 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         #if replied_message.reply:
         #    replied_content = replied_message.reply.message.extract_plain_text(a
         # 对内容进行总结
-        p = random.random()
         prompt1 = f"""请将文本{replied_content}改写成下面的格式, 基于文本, 允许少量自由发挥，可增加适量的讽刺色彩（A和B为名词，C为一种动作，意为A只有在主体为B的条件下才能做动作C. 严格按照此格式，不要输出其他内容）:
         请谅解
         A
@@ -165,11 +164,15 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         可以 C
         D 要考虑的事情就多了.
         """
-        prompt = prompt1
-        if p > 0.5:
-            prompt = prompt2
-        if p > 0.9:
-            prompt = prompt3
+        prompt4 = f"""
+        请以文本银河幸运星为主题改写成下面的格式, 基于文本, 允许少量自由发挥（这是一个双人对话的情景，A和B都为说话人1所说的完整的句子 ，A句子用一句让人期待的话激起另一个人的好奇与期待的情绪，在说话人2发起“难道说？”的反问后，说话人1说出一个常识或者严重不符合期待的事情，让说话人2大失所望。严格按照此格式，不要输出其他内容）:
+        说话人1：A
+        说话人2：难道说？
+        说话人1：B
+        """
+        prompts = [prompt1, prompt2, prompt3, prompt4]
+        prompt = random.choice(prompts)
+
         #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
         response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
         await mc.finish("\n"+response.content, at_sender=True)
