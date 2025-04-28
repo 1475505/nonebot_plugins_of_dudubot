@@ -35,5 +35,7 @@
 ### file_uploader
 - 功能：提供一个支持文件上传到本地路径/COS的FastAPI前后端应用
 
+**欢迎大佬扫码入群狠狠厚乳超绝可爱bot主喵**
+
 
 ![qrcode_1744131886442.jpg](https://7s-1304005994.cos.ap-singapore.myqcloud.com/qrcode_1744131886442.jpg)
