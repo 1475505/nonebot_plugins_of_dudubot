@@ -73,13 +73,20 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     else:
         replied_content = msg.extract_plain_text()
     # 对内容进行总结
-    prompt = """你现在是一位喜欢二次元的程序员，面向高三竞赛生,讲解接下来基于的文字/词语/短句/网络流行词中,对应的读音(拼音/该语言对应的音标),中文含义和历史渊源,即词典功能.输出最好能激发学习兴趣,格式：
+    prompt1 = """你现在是一位专业的科普员，面向喜欢二次元的浪漫文科生,讲解接下来基于的文字/词语/短句/网络流行词中,对应的读音(拼音/该语言对应的音标),中文含义和历史渊源,即词典功能.输出最好能激发学习兴趣."""
+    if len(replied_content) > 10:
+        prompt1 = """你现在是一位喜欢二次元的程序员。接下来的文本中有部分文字/词语/短句/网络流行词是对高三文科生难以理解的，请补充相关的读音(拼音/该语言对应的音标),中文含义和历史渊源,即词典功能.输出最好能激发学习兴趣."""
+
+    prompt2 = """
+    格式：
         [词典]...
-        [相关故事]...
+        [说文解字]...
         （严格按照此格式，不要输出其他内容）
         你需要处理的文本是：
     """ + replied_content
-    response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+    prompt = prompt1 + prompt2
+    response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
+    #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
     await zdict.finish("\n" + response.content, at_sender=True)
 
 quest = on_command("质疑", priority=13, block=True)
@@ -105,7 +112,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     
     
 
-commonai = on_command("安慰", aliases={"夸夸"}, priority=13, block=True)
+commonai = on_command("安慰", aliases={"夸夸", "锐评"}, priority=13, block=True)
 @commonai.handle()
 async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     # 检查是否包含回复信息
@@ -128,7 +135,6 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     await zdict.finish("\n" + response.content, at_sender=True)
 
 import random
-
 mc = on_command("鸣式", priority=13, block=True)
 @mc.handle()
 async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
@@ -178,6 +184,38 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         await mc.finish("\n"+response.content, at_sender=True)
 
 
+ll = on_command("冰淇淋", aliases={"icecream", "i式", "冰激凌", "I式", "aiscream", "LL式", "ll式"}, priority=13, block=True)
+@ll.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+      # 检查是否包含回复信息
+    replied_content = "我玩原神从不抽卡"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+    else:
+        replied_content = msg.extract_plain_text()
+    #if replied_message.reply:
+    #    replied_content = replied_message.reply.message.extract_plain_text(a
+    p = random.random()
+    prompt1 = f"""任务：接下来，我将给你一段输入文本，然后，你需要改写成基准文本类似的语言和文本格式, 需要保证段落结构的一致性和通顺性。请严格进行改写. (A 是一个名词概念，2-3个字左右；B是与A相关或相对立的名词概念，8个字以内）
+    基准文本：A酱～hi——你喜欢什么？比起B，我更喜•欢•你！
+
+    示例：
+    输出文本1：高数酱～hi——你喜欢什么？比起洛必达法则，我更喜•欢•你！
+    输出文本2：丛雨酱～hi——你喜欢什么？比起朝武芳乃，我更喜•欢•你！
+
+    接下来，请对下面的文本进行改写，只输出对应改写后的输出文本，不要输出其他内容,不要输出其他内容,不要输出其他内容。
+    输入文本：{replied_content}
+    """
+
+    prompt = prompt1
+
+    #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
+    response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+    await ll.finish("\n"+response.content, at_sender=True)
+
+
 htx = on_command("何式", priority=13, block=True)
 @htx.handle()
 async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
@@ -192,7 +230,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     #if replied_message.reply:
     #    replied_content = replied_message.reply.message.extract_plain_text(a
     p = random.random()
-    prompt1 = f"""任务：接下来，我将给你一段基准文本，然后，你需要将输入的文本改写成基准文本类似的语言和文本格式, 需要保证段落结构的一致性和通顺性。请严格进行改写。
+    prompt1 = f"""任务：接下来，我将给你一段基准文本，然后，你需要将输入的文本改写成基准文本类似的语言和文本格式, 需要保证段落结构的一致性和有趣性。请严格进行改写。
     基准文本：以前打网约车，司机师傅跟我说打个好评，我都会说好好好，但是下车后也没想起来打。其实这样挺不好的。现在司机师傅跟我说打个好评，除非服务真的很好到我想打好评的程度，否则我就会直接说，抱歉我不想打，然后下车。作为一个有讨好倾向的人，这是我锻炼真诚和勇气的方式。
 
     示例：
@@ -202,7 +240,19 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     接下来，请对下面的输入文本进行改写，只输出对应改写后的输出文本，不要输出其他内容,不要输出其他内容,不要输出其他内容。
     输入文本：{replied_content}
     """
+    prompt2 = f"""任务：接下来，我将给你一段基准文本，然后，你需要将输入的文本改写成基准文本类似的语言和文本格式, 需要保证段落结构的一致性和通顺性，最好附带一些幽默元素。请严格进行改写。
+    基准文本：不觉得这AI很酷吗? 作为一名理工男我觉得这AI太酷了，很符合我对未来生活的想象，科技并带着趣味。
+
+    示例：
+    输入文本：二次元游戏真好玩
+    输出文本：不觉得原神很好玩吗? 作为一位宅男我觉得这提瓦特世界太美好了，很符合我对未来生活的想象，快乐并带着惊喜。
+
+    接下来，请对下面的输入文本进行改写，只输出对应改写后的输出文本，不要输出其他内容,不要输出其他内容,不要输出其他内容。
+    输入文本：{replied_content}
+    """
     prompt = prompt1
+    if p > 0.7:
+        prompt = prompt2
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
     response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
     await htx.finish("\n"+response.content, at_sender=True)
@@ -243,3 +293,114 @@ async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
                         group_id=event.group_id,
                         messages=messages
                     )
+
+
+
+'''
+Mods by User670
+'''
+user670_summary_dictionary = on_command("词典", priority=255, block=True)
+@user670_summary_dictionary.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+    # 检查是否包含回复信息
+    replied_content = "嘟嘟可"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+    else:
+        replied_content = msg.extract_plain_text()
+    # 对内容进行总结
+    prompt = """用户对一个或多个单字、词语或短语不理解，需要类似词典的解释。对用户给出的每个关键字、词或词组，按照如下的格式提供解释。如果用户提供的内容过长，例如包含整个句子或段落，则提取最多3个最可能需要解释的字、词或词组进行解释。请用纯文本输出，不要使用markdown语法。
+
+格式：
+<词条>
+[读音]...
+[词源]...
+[释义]...
+
+对于读音，如果词条语言为中文，则给出汉语拼音。如果词条语言是日文，则给出黑本式罗马字。如果词条语言是拉丁字母拼写的其他语言，则给出IPA。如果词条语言是其他书写系统拼写的其他语言，则给出IPA和拉丁化转写。
+对于词源(etymology)，请给出该词条的公认的词源，例如词根词缀，构词法，相应的典故（对于俗语和成语）等。如果没有可靠的词源信息，则跳过该部分。
+对于释义，请按照类似词典的格式列举该词条的释义。
+
+用户提供的文本是：
+""" + replied_content
+    response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+    await user670_summary_dictionary.finish("\n" + response.content, at_sender=True)
+
+
+user670_summary_encyclopedia = on_command("百科", priority=255, block=True)
+@user670_summary_encyclopedia.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+    # 检查是否包含回复信息
+    replied_content = "嘟嘟可"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+    else:
+        replied_content = msg.extract_plain_text()
+    # 对内容进行总结
+    prompt = """用户对一个或多个概念希望获取类似百科全书的解释。对用户给出的每个关键概念给出解释。如果用户提供的内容过长，例如包含整个句子或段落，则提取最多3个最可能需要解释的概念进行解释。解释应言简意赅，对关键点进行概括，格式应类似维基百科词条的首段，不要超过200字。请用纯文本输出，不要使用markdown语法。
+
+格式：
+<词条>
+<解释>
+
+用户提供的文本是：
+""" + replied_content
+    response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+    await user670_summary_encyclopedia.finish("\n" + response.content, at_sender=True)
+
+
+user670_summary_meme = on_command("网络梗", priority=255, block=True)
+@user670_summary_meme.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+    # 检查是否包含回复信息
+    replied_content = "嘟嘟可"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+    else:
+        replied_content = msg.extract_plain_text()
+    # 对内容进行总结
+    prompt = """用户对一个或多个网络迷因、次文化梗等不理解。在用户提供的消息中，提取不超过3个最需要解释的迷因，并对每个迷因按照如下格式解释。请用纯文本输出，不要使用markdown语法。
+
+格式：
+<词条>
+[词源]...
+[解释]...
+
+用户提供的文本是：
+""" + replied_content
+    response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+    await user670_summary_meme.finish("\n" + response.content, at_sender=True)
+
+
+user670_summary_parse = on_command("解析", priority=255, block=True)
+@user670_summary_parse.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+    # 检查是否包含回复信息
+    replied_content = "嘟嘟可"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+    else:
+        replied_content = msg.extract_plain_text()
+    # 对内容进行总结
+    prompt = """用户对网络群聊中的一条消息不理解。请对提供的消息进行解析并改写为清晰易懂的语言。原文中可能包含网络迷因/次文化梗、缩写/简写/代指、谐音替换/双关语、专业术语等。请用纯文本输出，不要使用markdown语法。
+
+格式：
+您提供的消息改写结果如下：
+<改写后的文本>
+
+用户提供的文本是：
+""" + replied_content
+    response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+    await user670_summary_parse.finish("\n" + response.content, at_sender=True)
+
+'''
+End of mods by User670
+'''
