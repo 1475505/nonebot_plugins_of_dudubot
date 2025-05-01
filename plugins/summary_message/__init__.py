@@ -112,7 +112,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     
     
 
-commonai = on_command("安慰", aliases={"夸夸", "锐评"}, priority=13, block=True)
+commonai = on_command("安慰", aliases={"夸夸", "锐评", "回答"}, priority=13, block=True)
 @commonai.handle()
 async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     # 检查是否包含回复信息
@@ -256,6 +256,41 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
     response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
     await htx.finish("\n"+response.content, at_sender=True)
+
+
+syntax = on_command("公式", aliases={"改写", "鹦鹉", "复读", "咔库库"}, priority=13, block=True)
+@syntax.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+      # 检查是否包含回复信息
+      
+    content = msg.extract_plain_text()
+    replied_content = "我玩原神从不抽卡"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+        if '[CQ' in replied_content:
+            replied_content = ""
+        prompt1 = f"""任务：接下来，我将给你一段输入文本，然后，你需要改写成基准文本类似的语言和文本格式, 需要保证段落结构的一致性和通顺性, 语义需要有一定的幽默感。
+        请严格进行改写.
+    基准文本：{replied_content}
+    输入文本:{content}
+
+    示例：
+    基准文本：以前打网约车，司机师傅跟我说打个好评，我都会说好好好，但是下车后也没想起来打。其实这样挺不好的。现在司机师傅跟我说打个好评，除非服务真的很好到我想打好评的程度，否则我就会直接说，抱歉我不想打，然后下车。作为一个有讨好倾向的人，这是我锻炼真诚和勇气的方式。
+    输入文本：我看B站视频不喜欢一键三连。
+    输出文本：以前看何同学的视频，他总说记得一键三连，我都会说好好好，但退出后也没想起来按。其实这样挺不礼貌的。 现在何同学再提一键三连，除非视频真的有趣到让我想掏硬币，否则我就直接说：「抱歉，您的视频暂时无法三连」，然后退出全屏。作为一个有原则的观众，这是我锻炼自我和解与节能环保的方式。
+
+    接下来，请输出对应改写后的输出文本，不要输出其他内容,不要输出其他内容,不要输出其他内容。
+    """
+
+        prompt = prompt1
+
+    #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
+        response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+        await syntax.finish("\n"+response.content, at_sender=True)
+
+
 
 from . import xf_ocr
 ocr = on_command("ocr", priority=13, block=True)
