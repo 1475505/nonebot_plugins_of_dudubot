@@ -53,7 +53,7 @@ async def handle_reply(event: GroupMessageEvent):
         prompt = """你现在是一位专业的教授. 请使用1-2句话简单概括接下来的文本讲述的内容、论证逻辑和观点。如果文本中存在难以理解的内容/网络流行梗,使用通俗化的语言讲述.然后，以客观的角度分析，提供看法。输出格式：
         [总结]...
         [AI看法]...
-        [相关知识]...
+        [罐装知识]...
         （严格按照此格式，不要输出其他内容）
         你需要处理的文本是：
         """ + replied_content
@@ -66,28 +66,37 @@ zdict = on_command("扫盲", priority=13, block=True)
 async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     # 检查是否包含回复信息
     replied_content = "嘟嘟可"
+    field = ""
     if event.reply:
         # 获取被引用消息的内容
         replied_message = event.reply.message
         replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+        field = msg.extract_plain_text().strip()
     else:
         replied_content = msg.extract_plain_text()
     # 对内容进行总结
-    prompt1 = """你现在是一位专业的科普员，面向喜欢二次元的浪漫文科生,讲解接下来基于的文字/词语/短句/网络流行词中,对应的读音(拼音/该语言对应的音标),中文含义和历史渊源,即词典功能.输出最好能激发学习兴趣."""
+    prompt1 = """你现在是一位专业的科普员，面向喜欢二次元的浪漫中国文科生,讲解接下来基于的文字/词语/短句/网络流行词中,对应的读音(拼音/该语言对应的音标),中文含义,即词典功能.输出请比较简洁、专业、严谨,适当附以生动风格,激发学习兴趣."""
     if len(replied_content) > 10:
-        prompt1 = """你现在是一位喜欢二次元的程序员。接下来的文本中有部分文字/词语/短句/网络流行词是对高三文科生难以理解的，请补充相关的读音(拼音/该语言对应的音标),中文含义和历史渊源,即词典功能.输出最好能激发学习兴趣."""
+        prompt1 = """你现在是一位专业的科普员。接下来的文本中有部分文字/词语/短句/网络流行词是对高三文科生难以理解的，请补充相关的读音(拼音/该语言对应的音标),中文含义和,即词典功能.输出请比较简洁、专业、严谨,适当附以浪漫风格,激发学习兴趣."""
 
-    prompt2 = """
+    prompt2 = f"""
+    并且给出一个相关的真实故事,可以是历史渊源或经典人物故事.
     格式：
         [词典]...
-        [说文解字]...
+        [真实故事]...
         （严格按照此格式，不要输出其他内容）
         你需要处理的文本是：
     """ + replied_content
+    
+    prompt3 = f"""
+        \n (领域:${field})
+    """
     prompt = prompt1 + prompt2
+    if field:
+        prompt = prompt + prompt3
     response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
-    await zdict.finish("\n" + response.content, at_sender=True)
+    await zdict.finish(response.content, at_sender=True)
 
 quest = on_command("质疑", priority=13, block=True)
 @quest.handle()
@@ -100,11 +109,10 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         #if replied_message.reply:
         #    replied_content = replied_message.reply.message.extract_plain_text()
         # 对内容进行总结
-        prompt = """你现在是一位高考状元/开源贡献者/C++高手/北大小男娘/梗指南大师. 接下来我将给出一段文本，文本的内容、论证逻辑和观点可能存在错误。请以批判性质疑的角度，对其进行深入的分析，给出文本中观点的合理之处、错误之处，提出适当的质疑，并通俗地补充相关知识。输出格式：
+        prompt = """你现在是一位高考状元/开源贡献者/C++高手/北大小男娘/梗指南大师. 接下来我将给出一段文本，文本的内容、论证逻辑和观点可能存在错误。请以批判的角度进行判断，对其进行深入的分析，给出文本中观点的合理之处和错误/不完善之处，如有不符合事实的情况,提出1-2条适当的质疑. 然后，简洁、通俗地普及相关知识。输出格式：
         [判断]...
-        [质疑]...
-        [相关知识]...
-        （严格按照此格式，不要输出其他内容）
+        [罐装知识]...
+        （严格按照此格式，不要输出其他内容。输出请保持简洁的风格，不要长篇大论）
         你需要处理的文本是：
         """ + replied_content
         response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
@@ -112,7 +120,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     
     
 
-commonai = on_command("安慰", aliases={"夸夸", "锐评", "回答"}, priority=13, block=True)
+commonai = on_command("安慰", aliases={"赞同", "附议", "夸夸", "锐评", "回答", "翻译", "攻击", "译中", "思考"}, priority=13, block=True)
 @commonai.handle()
 async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     # 检查是否包含回复信息
@@ -127,10 +135,18 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     # 对内容进行总结
     prompt = f"""你现在是一位喜欢二次元的程序员. 接下来我将给出一段文本, 请对该文本进行简单的{command}, 需要具有同理心. 输出格式：
         [{command}]...
-        [相关建议]...
+        [简单建议]...
         （严格按照此格式，不要输出其他内容）
         你需要处理的文本是：
     """ + replied_content
+    prompt_en = f""" You are a programmer who likes Mihoyo and ACG. Then, I will give you a text, please do a simple {command} as your role with patience. You need to response in Chinese and make reader comfort. Output Format:
+        [{command}]...
+        [简单建议]...
+        （DO NOT OUTPUT OTHER TEXT OUTSIDE THE FORMAT）
+        the text you need to handle is ：
+    """ + replied_content
+    
+    #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt_en)
     response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
     await zdict.finish("\n" + response.content, at_sender=True)
 
