@@ -73,7 +73,7 @@ async def upload_7s_to_cos(file: UploadFile = File(...), folder: str = Form(""))
         
         # 构建访问URL
         file_url = f"https://{bucket}.cos.{region}.myqcloud.com/{key}"
-        access_url = f"https:///{key}"
+        access_url = f"https://7simg.070077.xyz/{key}"
         return {"filename": file.filename, "folder": folder, "message": "文件上传成功", "url": file_url, "access_url": access_url}
     except Exception as e:
         return {"error": str(e)}
@@ -154,6 +154,89 @@ async def submit_joke(joke_type: str = Form(...), joke_content: str = Form(...))
         f.write(new_joke + "\n")
     
     return {"message": "笑话添加成功", "joke": new_joke}
+
+from fastapi import Depends, HTTPException
+from fastapi.responses import FileResponse
+from nonebot.plugin import PluginMetadata
+from pathlib import Path
+
+@midi_app.get("/getFile")
+async def get_file(file: str = None):
+    if not file:
+        raise HTTPException(status_code=400, detail="请指定文件名")
+    BASE_DIR = Path("/root/nb/resources")
+    file_path = BASE_DIR / file
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    # 防止路径穿越攻击
+    try:
+        file_path.resolve().relative_to(BASE_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="无权访问该文件")
+
+    return FileResponse(
+        file_path,
+        filename=file_path.name,
+        media_type="application/octet-stream"
+    )
+
+from fastapi import Header, Request
+from typing import Optional
+import json
+from datetime import datetime
+
+@midi_app.post("/report")
+async def _(req: Request, content_disposition: Optional[str] = Header(None)):
+    json_body = await req.json()
+    filename = "received_data.json"  # Default filename
+    if content_disposition:
+        parts = content_disposition.split(';')
+        for part in parts:
+            part = part.strip()
+            if part.startswith("filename="):
+                filename = part.split('=')[1].strip().strip('"')
+                break
+    SAVE_DIR = "/root/nb/resources/logs"
+    filepath = os.path.join(SAVE_DIR, filename)
+     # Check if file exists and append timestamp if needed
+    if os.path.exists(filepath):
+        # Get current timestamp in yyyyMMdd-HHmmssSSS format
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+        # Split filename into name and extension
+        name, ext = os.path.splitext(filename)
+        # Create new filename with timestamp
+        filename = f"{name}_{timestamp}{ext}"
+        filepath = os.path.join(SAVE_DIR, filename)
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(json_body, f, ensure_ascii=False, indent=4)
+    bot: Bot = list(get_driver().bots.values())[0] # Get the first available bot instance
+    group_id = -1
+    msg = "http://1.2.3.4:1234/upload/getLog?file=" + filename
+    await bot.send_msg(group_id=group_id, message=msg, message_type="group")
+
+
+@midi_app.get("/getLog")
+async def get_file2(file: str = None):
+    if not file:
+        raise HTTPException(status_code=400, detail="请指定文件名")
+    BASE_DIR = Path("/root/nb/resources/logs/")
+    file_path = BASE_DIR / file
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    # 防止路径穿越攻击
+    try:
+        file_path.resolve().relative_to(BASE_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="无权访问该文件")
+
+    return FileResponse(
+        file_path,
+        filename=file_path.name
+    )
+
 
 driver = get_driver()
 
