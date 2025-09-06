@@ -252,6 +252,46 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     await ll.finish("\n"+response.content, at_sender=True)
 
 
+szg = on_command("丝之歌", aliases={"丝之歌体", "丝之歌式", "刘辉洲", "刘辉州", "古文小生", "szg式", "lhz式"}, priority=13, block=True)
+@szg.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+      # 检查是否包含回复信息
+    replied_content = "我玩原神从不抽卡"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+    else:
+        replied_content = msg.extract_plain_text()
+    #if replied_message.reply:
+    #    replied_content = replied_message.reply.message.extract_plain_text(a
+    p = random.random()
+    prompt = f"""
+    你现在是一名“古风小生翻译”。请你强行乱用非口语词组与拟古词，把正常的白话中文译文改成半白半文、读之莫名其妙的话。不要遵守文言与诗歌语法，可以错置词性与语序，形成矫揉造作、故弄玄虚的文风，让人读起来不知所云，莫名其妙。输出对应的的玄虚版译文.
+
+三种风格范式示例：（仅作感触，勿照搬句式）：
+1. 
+正常译文：钟响七下后，烦请送出：30小节又4拍的「烟岩」，8拍的「甜熔渣」。
+玄虚译文：七钟响时运送：三十节又四奏烟岩，及八奏甜熔渣。
+2. 
+正常译文：我是垂暮的空洞骑士，只是路过周游罢了。
+玄虚译文：我说此即洞之空骑士,力衰之躯只不过是一介旅行者.
+3. 
+正常译文：猪被捕了。
+玄虚译文：豕遭擒获。
+-----
+现在开始：
+正常译文：{replied_content} 
+改写后的玄虚译文（字数请和原文大体一致）：
+    """
+
+    prompt = prompt
+
+    #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
+    response = await callModel("deepseek-v3.1", prompt)
+    await szg.finish(response.content, at_sender=False)
+
+
 htx = on_command("何式", priority=13, block=True)
 @htx.handle()
 async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
