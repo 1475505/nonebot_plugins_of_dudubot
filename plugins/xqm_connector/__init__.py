@@ -123,14 +123,23 @@ def wrapMessageForward(title: str, texts: List[str]):
             }
         })
     return msgs
+import httpx
 
-# TODO: async client
+async def check_forbidden(command, event: MessageEvent, msg: Message):
+    forbidden_prefixes = ["/guyu", "/gυyυ"]
+    allowed_groups = [1030307936]
+    text: str = msg.extract_plain_text()
+    if any(text.startswith(prefix) for prefix in forbidden_prefixes) and event.group_id not in allowed_groups:
+        await command.finish("xqm是大坏蛋；此命令已被禁止使用")
+        raise ValueError("xqm是大坏蛋；此命令已被禁止使用")
+
 xqm = on_command("xqm", priority=2, block=True)
 import requests
 @xqm.handle()
 async def _(bot: Bot, event: MessageEvent, msg: Message = CommandArg()):
     if manager.contains("all"):
         return
+    await check_forbidden(xqm, event, msg)
     if not manager.contains(event.get_user_id()):
         #url = "https://bot.t.xqm32.org"
         url = "https://hachibot.xqm32.org"
@@ -145,7 +154,8 @@ async def _(bot: Bot, event: MessageEvent, msg: Message = CommandArg()):
             param["ref"] = replied_content
         print(param)
         try:
-            response = requests.post(url, data=param, timeout=180)
+            async with httpx.AsyncClient(timeout=600) as client:
+                response = await client.post(url, data=param)
         except Exception as e:
             await xqm.finish(f"{e}, 但是我知道嘟嘟可是好人")
         text = response.text
@@ -155,25 +165,26 @@ async def _(bot: Bot, event: MessageEvent, msg: Message = CommandArg()):
             msgs = wrapMessageForward(f"{event.get_user_id()}说嘟嘟可是好人", [text])
             await bot.call_api("send_group_forward_msg", group_id=event.group_id, messages=msgs)
 
-
-
-xqm2 = on_command("谁在打", priority=2, block=True)
+xqm2 = on_command("谁在", priority=2, block=True)
 @xqm2.handle()
 async def _(bot: Bot, event: MessageEvent, msg: Message = CommandArg()):
     if manager.contains("all"):
         return
+    await check_forbidden(xqm2, event, msg)
+    msg = str(event.get_message()).lstrip("/")
+    if msg == "谁在气谷雨同学":
+        await xqm2.finish("xqm在" + msg[2:])
     if not manager.contains(event.get_user_id()):
 #        url = "https://bot.t.xqm32.org"
         url = "https://hachibot.xqm32.org"
         param = {
-            "msg": str(event.get_message()).lstrip("/"),
+            "msg": msg,
             "qq": str(event.user_id)
         }
         print(param)
         response = requests.post(url, data=param, timeout=15)
         await xqm.finish(response.text)
 
-# TODO: xqm 拒绝用json，要改成 xml
 async def sendJson(data):
     for item in data:
         item_type = item.get("type")
