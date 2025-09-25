@@ -38,12 +38,28 @@ async def callModel(model: str, content: str, temperature: float = 1.0, top_p: f
         model=model,
         messages=[{"role": "user", "content": content}],
         extra_body={
-            "enable_search": True  # hy-dsr开启联网搜索
+            "enable_search": True, # hy-dsr开启联网搜索
+            "thinking": {
+                "type": "enabled"
+            }
         },
         temperature = temperature,
         top_p=top_p
     )
     return response.choices[0].message
+
+async def callModelChat(model: str, content: str, temperature: float = 1.0, top_p: float =1.0):
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": content}],
+        extra_body={
+            "enable_search": True # hy-dsr开启联网搜索
+        },
+        temperature = temperature,
+        top_p=top_p
+    )
+    return response.choices[0].message
+
 
 @conclude.handle()
 async def handle_reply(event: GroupMessageEvent):
@@ -77,7 +93,7 @@ async def handle_reply_webexplain(event: GroupMessageEvent, msg: Message = Comma
         replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
     # 对内容进行总结
     prompt = replied_content + "是什么? 根据网络搜索结果, 简单回答"
-    response = await callModel("deepseek-v3-0324", prompt)
+    response = await callModel("deepseek-r1-0528", prompt)
     await webexplain.finish(response.content, at_sender=True)
 
 
@@ -97,7 +113,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     # 对内容进行总结
     prompt1 = f"""Q: "{replied_content}"是什么意思? 给出拼音/音标和解释"""
     if len(replied_content) > 4:
-        prompt1 =  f"""Q:"{replied_content}"里有1-2个字词/网络梗难以理解，难理解的部分是什么意思?并给出拼音/音标."""
+        prompt1 =  f"""Q:"{replied_content}"里有1-2个字/词/网络梗难以理解，请解释难理解的部分,并给出拼音/音标."""
 
     prompt2 = f"""
     输出格式：
@@ -112,10 +128,11 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     prompt = prompt1 + prompt2
     if field:
         prompt = prompt + prompt3
+    prompt = prompt + "\n Q: " + prompt1 + "? A: "
     #response = await callModel("Pro/moonshotai/Kimi-K2-Instruct", prompt, 0.2, 0.7)
-    response = await callModel("deepseek-r1-0528", prompt, 0.2, 0.7)
+    response = await callModel("deepseek-v3.1-terminus", prompt, 0.2, 0.7)
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
-    await zdict.finish(response.content, at_sender=True)
+    await zdict.finish(response.content)
 
 quest = on_command("质疑", priority=13, block=True)
 @quest.handle()
@@ -220,38 +237,6 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         await mc.finish("\n"+response.content, at_sender=True)
 
 
-ll = on_command("冰淇淋", aliases={"icecream", "i式", "冰激凌", "I式", "aiscream", "LL式", "ll式"}, priority=13, block=True)
-@ll.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
-      # 检查是否包含回复信息
-    replied_content = "我玩原神从不抽卡"
-    if event.reply:
-        # 获取被引用消息的内容
-        replied_message = event.reply.message
-        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
-    else:
-        replied_content = msg.extract_plain_text()
-    #if replied_message.reply:
-    #    replied_content = replied_message.reply.message.extract_plain_text(a
-    p = random.random()
-    prompt1 = f"""任务：接下来，我将给你一段输入文本，然后，你需要改写成基准文本类似的语言和文本格式, 需要保证段落结构的一致性和通顺性。请严格进行改写. (A 是一个名词概念，2-3个字左右；B是与A相关或相对立的名词概念，8个字以内）
-    基准文本：A酱～hi——你喜欢什么？比起B，我更喜•欢•你！
-
-    示例：
-    输出文本1：高数酱～hi——你喜欢什么？比起洛必达法则，我更喜•欢•你！
-    输出文本2：丛雨酱～hi——你喜欢什么？比起朝武芳乃，我更喜•欢•你！
-
-    接下来，请对下面的文本进行改写，只输出对应改写后的输出文本，不要输出其他内容,不要输出其他内容。
-    输入文本：{replied_content}
-    """
-
-    prompt = prompt1
-
-    #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
-    response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
-    await ll.finish("\n"+response.content, at_sender=True)
-
-
 szg = on_command("丝之歌", aliases={"丝之歌体", "丝之歌式", "刘辉洲", "刘辉州", "古文小生", "szg式", "lhz式"}, priority=13, block=True)
 @szg.handle()
 async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
@@ -267,28 +252,50 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     #    replied_content = replied_message.reply.message.extract_plain_text(a
     p = random.random()
     prompt = f"""
-    你现在是一名“古风小生翻译”。请你强行乱用非口语词组与拟古词，把正常的白话中文译文改成半白半文、读之莫名其妙的话。不要遵守文言与诗歌语法，可以错置词性与语序，形成矫揉造作、故弄玄虚的文风，让人读起来不知所云，莫名其妙。输出对应的的玄虚版译文.
+    你现在是一名文盲“古风小生翻译”。请你强行乱用非口语词组与拟古词，把正常的白话中文译文增加一些矫揉造作、故弄玄虚的古语词,使其被改写成读之莫名其妙的话。不要遵守文言与诗歌语法，可以错置词性与语序,增加莫名其妙的谜语人语调等.请注意让人读起来不知所云，莫名其妙。输出对应的的玄虚版译文（字数请和原文大体一致）.
 
 三种风格范式示例：（仅作感触，勿照搬句式）：
 1. 
 正常译文：钟响七下后，烦请送出：30小节又4拍的「烟岩」，8拍的「甜熔渣」。
 玄虚译文：七钟响时运送：三十节又四奏烟岩，及八奏甜熔渣。
 2. 
-正常译文：我是垂暮的空洞骑士，只是路过周游罢了。
-玄虚译文：我说此即洞之空骑士,力衰之躯只不过是一介旅行者.
+正常译文：我是路过周游的人。来者可是空洞骑士？
+玄虚译文：我力衰之躯只不过是一介旅行者.啊哈哈!可是洞之空骑士？
 3. 
 正常译文：猪被捕了。
 玄虚译文：豕遭擒获。
 -----
 现在开始：
 正常译文：{replied_content} 
-改写后的玄虚译文（字数请和原文大体一致）：
+玄虚译文：
+    """
+    prompt1 = f"""你现在是一名文盲古风小生诗人,文风矫揉造作,故弄玄虚. 请注意你是文盲,需要强行乱用非口语的语言（如"被囚禁多天""气力衰微"）和拟古词汇（如"奏"）将一句简单的话强行表达成很有逼格但人类不可理解的诗。请一定要让人读起来莫名其妙，不遵守文言文语法.
+    诗文示例:
+    1. 
+  """
+
+    prompt2 = f"""
+    任务: 接下来，请对下面的输入文本改写成半文半白的短诗，只输出对应改写后让人读起来莫名其妙，不遵守文言文和诗歌语法的诗文. 不要输出其他内容,不要输出其他内容。
+    示例:
+    输入文本:
+    没有为苦难哭泣的声音,生于神于虚空之手,你必封印在众人梦中,散布瘟疫的障目之光,你是容器,你是空洞骑士
+    输出诗文:
+    没含悲衔怨之哀音对于苦难
+    于深渊虚空的神的手
+    你一定会在魔法梦的深狱
+    永远看见到处的妄光瘟疫
+    尔是器血
+    你是洞之空骑士
+    
+
+    输入文本：{replied_content}
+    输出诗文:
     """
 
     prompt = prompt
 
-    #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
-    response = await callModel("deepseek-v3.1", prompt)
+    #response = await callModel("Pro/moonshotai/Kimi-K2-Instruct-0905", prompt)
+    response = await callModel("deepseek-v3.1-terminus", prompt)
     await szg.finish(response.content, at_sender=False)
 
 
@@ -353,7 +360,9 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     输入文本：我看B站视频不喜欢一键三连。
     输出文本：以前看何同学的视频，他总说记得一键三连，我都会说好好好，但退出后也没想起来按。其实这样挺不礼貌的。 现在何同学再提一键三连，除非视频真的有趣到让我想掏硬币，否则我就直接说：「抱歉，您的视频暂时无法三连」，然后退出全屏。作为一个有原则的观众，这是我锻炼自我和解与节能环保的方式。
 
-    接下来，请输出对应改写后的输出文本，不要输出其他内容,不要输出其他内容,不要输出其他内容。
+    现在开始.
+
+    请输出对应改写后的输出文本，不要输出其他内容,不要输出其他内容,不要输出其他内容。
     基准文本：{replied_content}
     输入文本:{content}
     输出文本:
@@ -361,8 +370,8 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 
         prompt = prompt1
 
-    #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
-        response = await callModel("Pro/deepseek-ai/DeepSeek-V3.1", prompt)
+        #response = await callModel("Pro/moonshotai/Kimi-K2-Instruct-0905", prompt)
+        response = await callModel("deepseek-v3.1-terminus", prompt)
         await syntax.finish("\n"+response.content, at_sender=True)
 
 
@@ -514,3 +523,59 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 '''
 End of mods by User670
 '''
+
+
+# 宫崎英高小故事功能
+miyazaki_story = on_command("宫崎英高小故事", aliases={"宫崎英高", "魂游"},  priority=13, block=True)
+@miyazaki_story.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+    # 检查是否包含回复信息
+    replied_content = "假篝火"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+    else:
+        replied_content = msg.extract_plain_text()
+    
+    # 生成宫崎英高风格的小故事
+    prompt = f"""
+    玩家在魂系游戏中常遇到“设计者的恶意",会用设计者(比如宫崎英高)小时候的短篇故事进行调侃，用日常场景隐喻魂系游戏的机制（如假篝火、高难度boss、宝箱怪、单向门等），风格荒诞黑暗，结尾留悬念，不超过200字。
+    例子:
+    1. 宫崎英高小时候写作业，写着写着睡着了，被尿憋醒后发现作业刷新了。顾不了那么多转身去了厕所，结果发现厕所门不能从这一侧打开，没有办法他只能翻窗户，结果翻窗户的时候被旁边的树枝扫到了地上的洞里。
+    2. 樱桃小时候去上学被流浪狗咬了一口，一怒之下和狗子打架结果被打成残血了。跑的时候不小心掉污水沟里，被虫且爬了一身，必须要满能量才能踢开。到学校后必须要跑一遍苦痛之路才能坐上座位，还被告知要考试，一看卷子还要花钱买，一摸裤兜，钱在跑路的时候掉光了，只好拿祖传的项链抵钱买了份试卷。
+
+    接下来请基于{replied_content}生成小故事,直接输出故事,不要输出其他内容
+    """
+    
+    response = await callModel("Pro/deepseek-ai/DeepSeek-V3.1", prompt)
+    await miyazaki_story.finish("\n" + response.content, at_sender=True)
+
+
+# 股民视角功能
+stock_perspective = on_command("利好", priority=13, block=True)
+@stock_perspective.handle()
+async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+    # 检查是否包含回复信息
+    replied_content = "原神好玩"
+    if event.reply:
+        # 获取被引用消息的内容
+        replied_message = event.reply.message
+        replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+    else:
+        replied_content = msg.extract_plain_text()
+    
+    # 从股民角度分析内容
+    prompt = f"""你现在是一位李大霄的粉丝, A股股民. 接下来请将和股市不相关的新闻/话题中,强行绑定成对某个板块/股票的暗示和利好,输出“李大霄暗示解读”。输出语言风格:简洁 专业 沉稳,一本正经地分析暗示(胡说八道).
+
+示例：
+输入:家里的Wi-Fi路由器突然断网，重启之后，网速变流畅了一点.
+输出：家里暗示房地产板块, 路由器暗示科技板块, 断网暗示科技板块经历短期调整后，将迎来更强劲的复苏。主力部队将带着新一轮行情，中国股市将步入高速牛。优质科技股，如恒生科技，宜长期持有。做好人买好股得好报。
+
+现在开始:
+输入:{replied_content}
+输出:
+"""
+    
+    response = await callModel("deepseek-v3.1-terminus", prompt)
+    await stock_perspective.finish("[不构成投资建议]  " + response.content, at_sender=False)
