@@ -28,7 +28,7 @@ def buildMessageA(res):
     lastestpri = info['nowPri']
     limit = info['increPer']
     yesterdayPrice = info['yestodEndPri']
-    return name + '价格为：' + lastestpri + ", 变化：" + limit + '%（昨日收盘价 ' + yesterdayPrice + ')'
+    return name + '：' + lastestpri + ", 变化：" + limit + '%（昨日收盘价 ' + yesterdayPrice + ')'
 
 def buildMessage(res):
     info = res['result'][0]['data']
@@ -36,7 +36,7 @@ def buildMessage(res):
     lastestpri = info['lastestpri']
     limit = info['limit']
     yesterdayPrice = info['formpri']
-    return name + '价格为：' + lastestpri + ", 变化：" + limit + '%（昨日收盘价 ' + yesterdayPrice + ')'
+    return name + '：' + lastestpri + ", 变化：" + limit + '%（昨日收盘价 ' + yesterdayPrice + ')'
 
 
 def buildMessageHK(res):
@@ -45,56 +45,134 @@ def buildMessageHK(res):
     lastestpri = info['lastestpri']
     limit = info['limit']
     yesterdayPrice = info['formpri']
-    return name + '价格为：' + lastestpri + ", 变化：" + limit + '%（昨日收盘价 ' + yesterdayPrice + ')'
+    return name + '：' + lastestpri + ", 变化：" + limit + '%（昨日收盘价 ' + yesterdayPrice + ')'
 
 @showA.handle()
 async def _(bot: Bot, event: Event):
     msg = str(event.get_message())
-    code = msg.split()[-1].strip()
-    if code[0].isdigit():
-        code = "sh" + code
+    # Parse multiple codes separated by comma or space
+    codes_str = msg.replace('/A股', '').strip()
+    if not codes_str:
+        await showA.send("请提供股票代码，如：/A股 000001,000002")
+        return
+    
+    # Split by comma and clean up
+    codes = [code.strip() for code in codes_str.replace(',', ' ').split()]
+    codes = codes[:3]  # Limit to 3 codes
+    
+    if not codes:
+        await showA.send("请提供有效的股票代码")
+        return
+    
+    results = []
     apiUrl = 'http://web.juhe.cn/finance/stock/hs'  # 接口请求URL
-    requestParams = {
-        'key': apiKey,
-        'gid': code
-    }
-    response = requests.get(apiUrl, params=requestParams)
-    if response.status_code == 200:
-        res = response.json()
-        msg = buildMessageA(res)
-        await showA.send(msg)
+    
+    for code in codes:
+        if code[0].isdigit():
+            code = "sh" + code
+        requestParams = {
+            'key': apiKey,
+            'gid': code
+        }
+        try:
+            response = requests.get(apiUrl, params=requestParams)
+            if response.status_code == 200:
+                res = response.json()
+                if 'result' in res and res['result']:
+                    results.append(buildMessageA(res))
+                else:
+                    results.append(f"股票代码 {code} 查询失败")
+            else:
+                results.append(f"股票代码 {code} 查询失败")
+        except Exception as e:
+            results.append(f"股票代码 {code} 查询出错")
+    
+    if results:
+        await showA.send('\n'.join(results))
 
 
 @showHK.handle()
 async def _(bot: Bot, event: Event):
     msg = str(event.get_message())
-    code = msg.split()[-1].strip()
+    # Parse multiple codes separated by comma or space
+    codes_str = msg.replace('/港股', '').strip()
+    if not codes_str:
+        await showHK.send("请提供股票代码，如：/港股 09988,00700")
+        return
+    
+    # Split by comma and clean up
+    codes = [code.strip() for code in codes_str.replace(',', ' ').split()]
+    codes = codes[:3]  # Limit to 3 codes
+    
+    if not codes:
+        await showHK.send("请提供有效的股票代码")
+        return
+    
+    results = []
     apiUrl = 'http://web.juhe.cn/finance/stock/hk'  # 接口请求URL
-    requestParams = {
-        'key': apiKey,
-        'num': code
-    }
-    response = requests.get(apiUrl, params=requestParams)
-    if response.status_code == 200:
-        res = response.json()
-        msg = buildMessage(res) + buildMessageHK(res)
-        await showHK.send(msg)
+    
+    for code in codes:
+        requestParams = {
+            'key': apiKey,
+            'num': code
+        }
+        try:
+            response = requests.get(apiUrl, params=requestParams)
+            if response.status_code == 200:
+                res = response.json()
+                if 'result' in res and res['result']:
+                    results.append(buildMessage(res) + buildMessageHK(res))
+                else:
+                    results.append(f"股票代码 {code} 查询失败")
+            else:
+                results.append(f"股票代码 {code} 查询失败")
+        except Exception as e:
+            results.append(f"股票代码 {code} 查询出错")
+    
+    if results:
+        await showHK.send('\n'.join(results))
 
 
 @showUS.handle()
 async def _(bot: Bot, event: Event):
     msg = str(event.get_message())
-    code = msg.split()[-1].strip()
+    # Parse multiple codes separated by comma or space
+    codes_str = msg.replace('/美股', '').strip()
+    if not codes_str:
+        await showUS.send("请提供股票代码，如：/美股 AAPL,TSLA")
+        return
+    
+    # Split by comma and clean up
+    codes = [code.strip() for code in codes_str.replace(',', ' ').split()]
+    codes = codes[:3]  # Limit to 3 codes
+    
+    if not codes:
+        await showUS.send("请提供有效的股票代码")
+        return
+    
+    results = []
     apiUrl = 'http://web.juhe.cn/finance/stock/usa'  # 接口请求URL
-    requestParams = {
-        'key': apiKey,
-        'gid': code
-    }
-    response = requests.get(apiUrl, params=requestParams)
-    if response.status_code == 200:
-        res = response.json()
-        msg = buildMessage(res)
-        await showUS.send(msg)
+    
+    for code in codes:
+        requestParams = {
+            'key': apiKey,
+            'gid': code
+        }
+        try:
+            response = requests.get(apiUrl, params=requestParams)
+            if response.status_code == 200:
+                res = response.json()
+                if 'result' in res and res['result']:
+                    results.append(buildMessage(res))
+                else:
+                    results.append(f"股票代码 {code} 查询失败")
+            else:
+                results.append(f"股票代码 {code} 查询失败")
+        except Exception as e:
+            results.append(f"股票代码 {code} 查询出错")
+    
+    if results:
+        await showUS.send('\n'.join(results))
 
 
 import requests
