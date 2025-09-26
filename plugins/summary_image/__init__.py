@@ -14,7 +14,7 @@ config = get_plugin_config(Config)
 
 import os
 from openai import AsyncOpenAI
-from nonebot import on_command, on_message
+from nonebot import on_command, on_message, Bot
 from nonebot.rule import Rule
 from nonebot.adapters.onebot.v11 import MessageEvent, Message, MessageSegment
 from nonebot.adapters.onebot.v11.helpers import extract_image_urls
@@ -24,6 +24,7 @@ from typing import Optional
 import httpx
 import base64
 import asyncio
+from plugins.common import autoWrapMessage
 
 # 腾讯混元API配置
 HUNYUAN_API_KEY = os.environ.get("HUNYUAN_API_KEY", "sk-")
@@ -105,17 +106,18 @@ async def process_image(event: MessageEvent, prompt: str) -> Optional[str]:
         return f"图片处理失败: {str(e)}"
 
 # 处理命令形式: /imgai <prompt> [图片]
-imgai_command = on_command("imgai", aliases={"图片分析"}, priority=5, block=True)
+imgai_command = on_command("imgai", aliases={"img2txt", "totxt"}, priority=5, block=True)
 
 @imgai_command.handle()
-async def handle_imgai_command(event: MessageEvent, matcher: Matcher, args: Message = CommandArg()):
+async def handle_imgai_command(bot: Bot, event: MessageEvent, matcher: Matcher, args: Message = CommandArg()):
     # 提取提示语
     prompt = args.extract_plain_text().strip() or DEFAULT_PROMPT
 
     # 处理图片并获取结果
     result = await process_image(event, prompt)
     if result:
-        await matcher.finish(result)
+        await autoWrapMessage(bot, event, matcher, result)
+        #await matcher.finish(result)
 
 # 处理引用形式: 引用图片 + /imgai <prompt>
 async def is_reply_imgai(event: MessageEvent) -> bool:
@@ -129,7 +131,7 @@ async def is_reply_imgai(event: MessageEvent) -> bool:
 
     # 检查当前消息是否以命令开头
     msg_text = event.message.extract_plain_text().strip()
-    return msg_text.startswith(("/imgai", "图片分析"))
+    return msg_text.startswith(("/imgai", "/totxt"))
 
 reply_imgai = on_message(
     rule=Rule(is_reply_imgai),
@@ -138,16 +140,17 @@ reply_imgai = on_message(
 )
 
 @reply_imgai.handle()
-async def handle_reply_imgai(event: MessageEvent, matcher: Matcher):
+async def handle_reply_imgai(bot: Bot, event: MessageEvent, matcher: Matcher):
     # 提取提示语
     msg_text = event.message.extract_plain_text().strip()
-    prompt = msg_text.replace("/imgai", "").replace("图片分析", "").strip()
+    prompt = msg_text.replace("/imgai", "").replace("/totxt", "").strip()
     prompt = prompt or DEFAULT_PROMPT
 
     # 处理图片并获取结果
     result = await process_image(event, prompt)
     if result:
-        await matcher.finish(result)
+        #await matcher.finish(result)
+        await autoWrapMessage(bot, event, matcher, result)
 
 import os
 from datetime import datetime  # 添加这一行
@@ -172,7 +175,7 @@ DEFAULT_GEN_PROMPT = "请基于下面的文本生成图片:"
 # 注册文生图命令
 aiimg_command = on_command(
     "aiimg", 
-    aliases={"生成图片", "画图"},
+    aliases={"draw", "toimg"},
     priority=5,
     block=True
 )
@@ -195,7 +198,8 @@ async def handle_aiimg_command(
     else:
         prompt = DEFAULT_GEN_PROMPT
     # 调用文生图API
-    result = await text_to_image(prompt)
+    #result = await text_to_image_lite(prompt)
+    result = await callModelImage(prompt) 
     # 发送结果
     if isinstance(result, MessageSegment):
         await matcher.finish(Message(result))
@@ -207,7 +211,7 @@ async def is_reply_aiimg(event: MessageEvent) -> bool:
     if not hasattr(event, "reply") or not event.reply:
         return False
     msg_text = event.message.extract_plain_text().strip()
-    return msg_text.startswith(("/aiimg", "生成图片", "画图"))
+    return msg_text.startswith(("/aiimg", "/draw", "/toimg"))
 
 reply_aiimg = on_message(
     rule=Rule(is_reply_aiimg),
@@ -220,14 +224,15 @@ async def handle_reply_aiimg(event: MessageEvent, matcher: Matcher):
     # prompt2
     msg_text = event.message.extract_plain_text().strip()
     prompt2 = msg_text
-    for cmd in ["/aiimg", "生成图片", "画图"]:
+    for cmd in ["/aiimg", "/toimg", "/draw"]:
         if prompt2.startswith(cmd):
             prompt2 = prompt2[len(cmd):].strip()
     # prompt1
     prompt1 = event.reply.message.extract_plain_text().strip() if event.reply else ""
     # 合并
     prompt = (prompt2 + " " + prompt1).strip() or DEFAULT_GEN_PROMPT
-    result = await text_to_image(prompt)
+    #result = await text_to_image_lite(prompt)
+    result = await callModelImage(prompt) 
     if isinstance(result, MessageSegment):
         await matcher.finish(Message(result))
     else:
@@ -235,15 +240,16 @@ async def handle_reply_aiimg(event: MessageEvent, matcher: Matcher):
 
 import os
 import json
-import asyncio
 from tencentcloud.common import credential
 from tencentcloud.common.profile.client_profile import ClientProfile
 from tencentcloud.common.profile.http_profile import HttpProfile
 from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException
 from tencentcloud.hunyuan.v20230901 import hunyuan_client, models
+import httpx
+from nonebot.adapters.onebot.v11 import MessageSegment
 
-async def text_to_image(prompt: str) -> Optional[MessageSegment]:
-    """使用腾讯云SDK提交并查询混元生图任务"""
+async def text_to_image_lite(prompt: str) -> MessageSegment:
+    """调用腾讯云轻量版文生图API"""
     try:
         cred = credential.Credential(
             os.getenv("TENCENTCLOUD_SECRET_ID", SECRET_ID),
@@ -255,34 +261,17 @@ async def text_to_image(prompt: str) -> Optional[MessageSegment]:
         clientProfile.httpProfile = httpProfile
         client = hunyuan_client.HunyuanClient(cred, "ap-guangzhou", clientProfile)
 
-        # 提交任务
-        req = models.SubmitHunyuanImageJobRequest()
+        req = models.TextToImageLiteRequest()
         params = {
             "Prompt": prompt,
-            "LogoAdd": 0,
             "RspImgType": "url"
         }
         req.from_json_string(json.dumps(params))
-        resp = client.SubmitHunyuanImageJob(req)
-        job_id = resp.JobId
-
-        # 轮询查询任务结果
-        for t in range(30):
-            await asyncio.sleep(2)
-            query_req = models.QueryHunyuanImageJobRequest()
-            query_req.JobId = job_id
-            query_resp = client.QueryHunyuanImageJob(query_req)
-            if query_resp.JobStatusCode == "5" and query_resp.ResultImage:
-                # 获取图片URL并转为图片消息
-                async with httpx.AsyncClient() as http_client:
-                    img_resp = await http_client.get(query_resp.ResultImage[0])
-                    img_resp.raise_for_status()
-                    return MessageSegment.image(img_resp.content)
-            elif t == 29 and query_resp.JobStatusCode != "5":
-                return f"❌ 图片生成失败: {getattr(query_resp, 'ErrorMsg', '未知错误')}"
-        return "❌ 图片生成超时，请稍后再试"
-
+        resp = client.TextToImageLite(req)
+        img_url = resp.ResultImage
+        return MessageSegment.image(img_url)
     except TencentCloudSDKException as err:
         return f"❌ 腾讯云SDK错误: {str(err)}"
     except Exception as e:
-        return f"⚠️ 服务错误: {str(e)}"
+        return f"⚠️ 错误: {str(e)}"
+
