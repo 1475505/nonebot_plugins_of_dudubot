@@ -31,6 +31,8 @@ client = AsyncOpenAI(
     api_key=plugin_config.chat_oneapi_key, base_url=plugin_config.chat_oneapi_url
 )
 
+DEEPSEEK_MODEL = "deepseek-v3.1-terminus"
+
 conclude = on_command("概括", priority=13, block=True)
 
 async def callModel(model: str, content: str, temperature: float = 1.0, top_p: float =1.0):
@@ -93,11 +95,11 @@ async def handle_reply_webexplain(event: GroupMessageEvent, msg: Message = Comma
         replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
     # 对内容进行总结
     prompt = replied_content + "是什么? 根据网络搜索结果, 简单回答"
-    response = await callModel("deepseek-r1-0528", prompt)
+    response = await callModel(DEEPSEEK_MODEL, prompt)
     await webexplain.finish(response.content, at_sender=True)
 
 
-zdict = on_command("扫盲", priority=13, block=True)
+zdict = on_command("扫盲", aliases={"何意味"}, priority=13, block=True)
 @zdict.handle()
 async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     # 检查是否包含回复信息
@@ -119,7 +121,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     输出格式：
         [词扫盲]...
         [句扫盲]...
-        （严格按照此格式简洁严谨输出, 可附带一些简单的真实史实/历史人物故事）
+        （严格按照此格式简洁严谨输出, 可附带一些简单的真实史实/网``络梗/冷知识）
     """
     
     prompt3 = f"""
@@ -130,9 +132,9 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         prompt = prompt + prompt3
     prompt = prompt + "\n Q: " + prompt1 + "? A: "
     #response = await callModel("Pro/moonshotai/Kimi-K2-Instruct", prompt, 0.2, 0.7)
-    response = await callModel("deepseek-v3.1-terminus", prompt, 0.2, 0.7)
+    response = await callModel(DEEPSEEK_MODEL, prompt, 0.2, 0.7)
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
-    await zdict.finish(response.content)
+    await zdict.finish(response.content.strip())
 
 quest = on_command("质疑", priority=13, block=True)
 @quest.handle()
@@ -152,7 +154,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         （严格按照此格式. 输出请保持简洁的风格,符合输出格式）
         你需要处理的文本是：
         """ + replied_content
-        response = await callModel("Pro/deepseek-ai/DeepSeek-V3.1", prompt)
+        response = await callModel("moonshotai/Kimi-K2-Instruct-0905", prompt)
         await quest.finish(response.content, at_sender=True)
     
     
@@ -184,7 +186,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     """ + replied_content
     
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt_en)
-    response = await callModel("Pro/deepseek-ai/DeepSeek-V3.1", prompt)
+    response = await callModel("Pro/moonshotai/Kimi-K2-Instruct-0905", prompt)
     await zdict.finish("\n" + response.content, at_sender=True)
 
 import random
@@ -233,7 +235,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         prompt = random.choice(prompts)
 
         #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
-        response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+        response = await callModel(DEEPSEEK_MODEL, prompt)
         await mc.finish("\n"+response.content, at_sender=True)
 
 
@@ -265,7 +267,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 正常译文：猪被捕了。
 玄虚译文：豕遭擒获。
 -----
-现在开始：
+现在开始(输出仅输出译文,不输出任何提示词和说明)：
 正常译文：{replied_content} 
 玄虚译文：
     """
@@ -295,8 +297,8 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     prompt = prompt
 
     #response = await callModel("Pro/moonshotai/Kimi-K2-Instruct-0905", prompt)
-    response = await callModel("deepseek-v3.1-terminus", prompt)
-    await szg.finish(response.content, at_sender=False)
+    response = await callModel(DEEPSEEK_MODEL, prompt)
+    await szg.finish(response.content.strip(), at_sender=False)
 
 
 htx = on_command("何式", priority=13, block=True)
@@ -337,7 +339,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     if p > 0.7:
         prompt = prompt2
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
-    response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
+    response = await callModel(DEEPSEEK_MODEL, prompt)
     await htx.finish("\n"+response.content, at_sender=True)
 
 
@@ -356,9 +358,9 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         请严格进行改写.
 
     示例：
-    基准文本：以前打网约车，司机师傅跟我说打个好评，我都会说好好好，但是下车后也没想起来打。其实这样挺不好的。现在司机师傅跟我说打个好评，除非服务真的很好到我想打好评的程度，否则我就会直接说，抱歉我不想打，然后下车。作为一个有讨好倾向的人，这是我锻炼真诚和勇气的方式。
+    基准文本：以前打网约车，司机师傅跟我说打个好评，我都会说好好好，但是下车后也没想起来打. 其实这样挺不好的.
     输入文本：我看B站视频不喜欢一键三连。
-    输出文本：以前看何同学的视频，他总说记得一键三连，我都会说好好好，但退出后也没想起来按。其实这样挺不礼貌的。 现在何同学再提一键三连，除非视频真的有趣到让我想掏硬币，否则我就直接说：「抱歉，您的视频暂时无法三连」，然后退出全屏。作为一个有原则的观众，这是我锻炼自我和解与节能环保的方式。
+    输出文本：以前看何同学的视频，他总说记得一键三连，我都会说好好好，但退出后也没想起来按。其实这样挺不礼貌的。
 
     现在开始.
 
@@ -371,7 +373,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         prompt = prompt1
 
         #response = await callModel("Pro/moonshotai/Kimi-K2-Instruct-0905", prompt)
-        response = await callModel("deepseek-v3.1-terminus", prompt)
+        response = await callModel(DEEPSEEK_MODEL, prompt)
         await syntax.finish("\n"+response.content, at_sender=True)
 
 
@@ -548,7 +550,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     接下来请基于{replied_content}生成小故事,直接输出故事,不要输出其他内容
     """
     
-    response = await callModel("Pro/deepseek-ai/DeepSeek-V3.1", prompt)
+    response = await callModel(DEEPSEEK_MODEL, prompt)
     await miyazaki_story.finish("\n" + response.content, at_sender=True)
 
 
@@ -577,5 +579,5 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 输出:
 """
     
-    response = await callModel("deepseek-v3.1-terminus", prompt)
+    response = await callModel("moonshotai/Kimi-K2-Instruct-0905", prompt)
     await stock_perspective.finish("[不构成投资建议]  " + response.content, at_sender=False)
