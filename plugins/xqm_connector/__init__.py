@@ -124,6 +124,39 @@ def wrapMessageForward(title: str, texts: List[str]):
         })
     return msgs
 import httpx
+import base64
+
+
+
+async def get_image_data_uri(image_url: str) -> str:
+    """
+    从图片URL获取图片数据并转换为data URI
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(image_url)
+            response.raise_for_status()
+            
+        # 转换为base64
+        image_data = base64.b64encode(response.content).decode('utf-8')
+        
+        # 获取图片格式
+        content_type = response.headers.get('content-type', 'image/jpeg')
+        
+        # 返回data URI
+        return f"data:{content_type};base64,{image_data}"
+    except Exception as e:
+        print(f"获取图片失败: {e}")
+        return None
+
+async def extract_image_from_message(message: Message) -> str:
+    """
+    从消息中提取第一张图片的URL
+    """
+    for segment in message:
+        if segment.type == "image":
+            return segment.data.get("url")
+    return None
 
 async def check_forbidden(command, event: MessageEvent, msg: Message):
     forbidden_prefixes = ["/guyu", "/gυyυ"]
@@ -133,8 +166,10 @@ async def check_forbidden(command, event: MessageEvent, msg: Message):
         await command.finish("xqm是大坏蛋；此命令已被禁止使用")
         raise ValueError("xqm是大坏蛋；此命令已被禁止使用")
 
-xqm = on_command("xqm", priority=2, block=True)
+from plugins.common import extract_image_data_url, extract_text
+xqm = on_command("xqm", aliases={"imgai"}, priority=102, block=True)
 import requests
+import re
 @xqm.handle()
 async def _(bot: Bot, event: MessageEvent, msg: Message = CommandArg()):
     if manager.contains("all"):
@@ -143,27 +178,57 @@ async def _(bot: Bot, event: MessageEvent, msg: Message = CommandArg()):
     if not manager.contains(event.get_user_id()):
         #url = "https://bot.t.xqm32.org"
         url = "https://hachibot.xqm32.org"
+
         param = {
             "msg": msg.extract_plain_text(),
-            "qq": str(event.user_id)
+            "qq": str(event.user_id),
+            "group": str(event.group_id)
         }
-        if event.reply:
-            # 获取被引用消息的内容
-            replied_message = event.reply.message
-            replied_content = replied_message.extract_plain_text()  # 提取纯文本内容
+        
+        # 检查当前消息中的图片
+        current_image_url = await extract_image_data_url(event)
+        if current_image_url:
+            param["image"] = current_image_url
+        
+        (content, replied_content) = extract_text(event)        
+        if replied_content:
             param["ref"] = replied_content
-        print(param)
+
+        print("xqm param:", param)
         try:
-            async with httpx.AsyncClient(timeout=600) as client:
+            async with httpx.AsyncClient(timeout=600, http2=True) as client:
                 response = await client.post(url, data=param)
+                response.raise_for_status()
         except Exception as e:
-            await xqm.finish(f"{e}, 但是我知道嘟嘟可是好人")
+            await xqm.send(str(e)[:18] + "...")
         text = response.text
+        img_url_pattern = r"^https?://[^\s?#]+\.(?:jpg|jpeg|png|gif|webp|bmp)(?:\?.*)?$"
+        txt = text.strip()
+        data_match = re.match(r"^data:image/[^;]+;base64,([A-Za-z0-9+/=]+)$", txt)
+        url_match = re.match(img_url_pattern, txt, re.IGNORECASE)
+        if data_match or url_match:
+            return await xqm.finish(MessageSegment.image(txt))
+
         if len(text) < 204:
             await xqm.finish(text)
         else:
             msgs = wrapMessageForward(f"{event.get_user_id()}说嘟嘟可是好人", [text])
             await bot.call_api("send_group_forward_msg", group_id=event.group_id, messages=msgs)
+
+async def fetchGuyuRooms(url: str):
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.get(url)
+        response.raise_for_status()  # 检查 HTTP 状态码
+        data = response.json()
+    results = ""
+    for item in data:
+        room_id = item.get('id')
+        players = item.get('players')
+        names = [v.get('name') for v in players]
+        players_str = " vs ".join(names)
+        results += f"{room_id}-> {players_str} \n"
+    return results
+
 
 xqm2 = on_command("谁在", priority=2, block=True)
 @xqm2.handle()
@@ -176,12 +241,36 @@ async def _(bot: Bot, event: MessageEvent, msg: Message = CommandArg()):
         await xqm2.finish("xqm在" + msg[2:])
     if not manager.contains(event.get_user_id()):
 #        url = "https://bot.t.xqm32.org"
+        result = "[main]\n"
+        main_rooms = await fetchGuyuRooms("https://gi.xqm32.org/api/rooms")
+        beta_rooms = await fetchGuyuRooms("https://beta.gi.xqm32.org/api/rooms")
+        result += main_rooms
+        result += "\n---Ciallo～(∠・ω< )⌒★! ---\n\n[beta]\n" + beta_rooms
+        await xqm2.finish(result)
+        return
         url = "https://hachibot.xqm32.org"
         param = {
             "msg": msg,
             "qq": str(event.user_id)
         }
-        print(param)
+        
+        # 检查当前消息中的图片
+        current_image_url = await extract_image_from_message(event.get_message())
+        if current_image_url:
+            image_data_uri = await get_image_data_uri(current_image_url)
+            if image_data_uri:
+                param["image"] = image_data_uri
+        
+        if event.reply:
+            # 检查被引用消息中的图片
+            if not current_image_url:  # 如果当前消息没有图片，检查被引用消息
+                replied_image_url = await extract_image_from_message(event.reply.message)
+                if replied_image_url:
+                    image_data_uri = await get_image_data_uri(replied_image_url)
+                    if image_data_uri:
+                        param["image"] = image_data_uri
+        
+        print("xqm2 param:", param)
         response = requests.post(url, data=param, timeout=15)
         await xqm.finish(response.text)
 
