@@ -1,74 +1,20 @@
-from nonebot import get_plugin_config
-from nonebot.plugin import PluginMetadata
-
-from .config import Config
-
-__plugin_meta__ = PluginMetadata(
-    name="summary_image",
-    description="",
-    usage="",
-    config=Config,
-)
-
-config = get_plugin_config(Config)
-
-import os
-from openai import AsyncOpenAI
-from nonebot import on_command, on_message, Bot
-from nonebot.rule import Rule
-from nonebot.adapters.onebot.v11 import MessageEvent, Message, MessageSegment
-from nonebot.adapters.onebot.v11.helpers import extract_image_urls
+from nonebot import on_command
+from nonebot.adapters.onebot.v11 import Message, MessageSegment, Event, MessageEvent
+from nonebot.params import CommandArg
 from nonebot.matcher import Matcher
-from nonebot.params import EventMessage, CommandArg
-from typing import Optional
-import httpx
-import base64
+from nonebot.adapters.onebot.v11.helpers import extract_image_urls
+from openai import OpenAI
+import os
 import asyncio
-from plugins.common import autoWrapMessage
+from typing import Optional, Dict, Any
+from plugins.common import autoWrapMessage, callSFImg, callSfVLM
+import re
+import base64
+import httpx
 
-# 腾讯混元API配置
-HUNYUAN_API_KEY = os.environ.get("HUNYUAN_API_KEY", "sk-")
-API_BASE_URL = "https://api.hunyuan.cloud.tencent.com/v1"
-
-# 默认提示语
-DEFAULT_PROMPT = "简洁地输出该图片的内容"
-
-# 创建异步OpenAI客户端
-client = AsyncOpenAI(
-    api_key=HUNYUAN_API_KEY,
-    base_url=API_BASE_URL,
-)
-
-async def analyze_image(image_url: str, prompt: str) -> str:
-    """使用腾讯混元API分析图片"""
-    try:
-        # 构造消息内容
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": image_url}
-                    }
-                ]
-            }
-        ]
-
-        # 调用API
-        response = await client.chat.completions.create(
-            model="hunyuan-turbos-vision-20250619",
-            #model="hunyuan-t1-vision-20250619",
-            messages=messages,
-            max_tokens=1024,
-            temperature=0.5
-        )
-
-        return response.choices[0].message.content
-
-    except Exception as e:
-        return f"图片分析失败: {str(e)}"
+imgai = on_command("imgai", priority=5)
+aiimg = on_command("aiimg", priority=5)
+aiimg2 = on_command("aiimg2", priority=10)
 
 async def get_image_data_url(img_url: str) -> str:
     """将图片URL转换为base64格式的data URL"""
@@ -85,7 +31,8 @@ async def get_image_data_url(img_url: str) -> str:
         img_base64 = base64.b64encode(img_data).decode('utf-8')
         return f"data:image/{img_type};base64,{img_base64}"
 
-async def process_image(event: MessageEvent, prompt: str) -> Optional[str]:
+
+async def process_image(event: MessageEvent) -> str:
     """处理并分析图片"""
     # 查找图片URL
     img_urls = extract_image_urls(event.message) or []
@@ -100,178 +47,199 @@ async def process_image(event: MessageEvent, prompt: str) -> Optional[str]:
     try:
         # 将第一张图片转换为data URL
         img_url = await get_image_data_url(img_urls[0])
-        return await analyze_image(img_url, prompt)
-
+        return img_url
     except Exception as e:
         return f"图片处理失败: {str(e)}"
 
-# 处理命令形式: /imgai <prompt> [图片]
-imgai_command = on_command("imgai", aliases={"img2txt", "totxt"}, priority=5, block=True)
+async def call_openrouter(image_url: Optional[str], text: str) -> str:
+    """调用 OpenRouter API."""
+    client = OpenAI(
+        base_url="https://*.xqm32.org/api/v1",
+        api_key="sk-noneed",
+    )
 
-@imgai_command.handle()
-async def handle_imgai_command(bot: Bot, event: MessageEvent, matcher: Matcher, args: Message = CommandArg()):
-    # 提取提示语
-    prompt = args.extract_plain_text().strip() or DEFAULT_PROMPT
+    messages: list[Dict[str, Any]] = []
+    messages.append({"role": "user", "content": [{"type": "text", "text": text}]})
 
-    # 处理图片并获取结果
-    result = await process_image(event, prompt)
-    if result:
-        await autoWrapMessage(bot, event, matcher, result)
-        #await matcher.finish(result)
+    if image_url:
+        messages[0]["content"].append({
+            "type": "image_url",
+            "image_url": {"url": image_url},
+        })
 
-# 处理引用形式: 引用图片 + /imgai <prompt>
-async def is_reply_imgai(event: MessageEvent) -> bool:
-    """检查是否为引用图片+imgai命令的消息"""
-    if not hasattr(event, "reply") or not event.reply:
-        return False
-
-    # 检查回复消息是否包含图片
-    if not extract_image_urls(event.reply.message):
-        return False
-
-    # 检查当前消息是否以命令开头
-    msg_text = event.message.extract_plain_text().strip()
-    return msg_text.startswith(("/imgai", "/totxt"))
-
-reply_imgai = on_message(
-    rule=Rule(is_reply_imgai),
-    priority=6,
-    block=True
-)
-
-@reply_imgai.handle()
-async def handle_reply_imgai(bot: Bot, event: MessageEvent, matcher: Matcher):
-    # 提取提示语
-    msg_text = event.message.extract_plain_text().strip()
-    prompt = msg_text.replace("/imgai", "").replace("/totxt", "").strip()
-    prompt = prompt or DEFAULT_PROMPT
-
-    # 处理图片并获取结果
-    result = await process_image(event, prompt)
-    if result:
-        #await matcher.finish(result)
-        await autoWrapMessage(bot, event, matcher, result)
-
-import os
-from datetime import datetime  # 添加这一行
-from nonebot.adapters.onebot.v11 import MessageEvent, Message, MessageSegment
-from nonebot.matcher import Matcher
-from nonebot.params import CommandArg
-import httpx
-import base64
-import json
-import hashlib
-import hmac
-import time
-
-# 腾讯云配置
-SECRET_ID = os.environ.get("HUNYUAN_SECRET_ID", "")
-SECRET_KEY = os.environ.get("HUNYUAN_SECRET_KEY", "")
-TEXT_TO_IMAGE_ENDPOINT = "https://hunyuan.tencentcloudapi.com"
-
-# 默认提示语
-DEFAULT_GEN_PROMPT = "请基于下面的文本生成图片:"
-
-# 注册文生图命令
-aiimg_command = on_command(
-    "aiimg", 
-    aliases={"draw", "toimg"},
-    priority=5,
-    block=True
-)
-
-@aiimg_command.handle()
-async def handle_aiimg_command(
-    event: MessageEvent, 
-    matcher: Matcher, 
-    args: Message = CommandArg()
-):
-    # 提取当前消息的prompt2
-    prompt2 = args.extract_plain_text().strip()
-    # 检查是否引用了消息
-    prompt1 = ""
-    if hasattr(event, "reply") and event.reply:
-        prompt1 = event.reply.message.extract_plain_text().strip()
-    # 合并prompt
-    if prompt2 or prompt1:
-        prompt = (prompt2 + " " + prompt1).strip()
-    else:
-        prompt = DEFAULT_GEN_PROMPT
-    # 调用文生图API
-    #result = await text_to_image_lite(prompt)
-    result = await callModelImage(prompt) 
-    # 发送结果
-    if isinstance(result, MessageSegment):
-        await matcher.finish(Message(result))
-    else:
-        await matcher.finish(result)
-
-# 支持直接引用消息+aiimg命令（如：引用消息<prompt1> /aiimg <prompt2>）
-async def is_reply_aiimg(event: MessageEvent) -> bool:
-    if not hasattr(event, "reply") or not event.reply:
-        return False
-    msg_text = event.message.extract_plain_text().strip()
-    return msg_text.startswith(("/aiimg", "/draw", "/toimg"))
-
-reply_aiimg = on_message(
-    rule=Rule(is_reply_aiimg),
-    priority=6,
-    block=True
-)
-
-@reply_aiimg.handle()
-async def handle_reply_aiimg(event: MessageEvent, matcher: Matcher):
-    # prompt2
-    msg_text = event.message.extract_plain_text().strip()
-    prompt2 = msg_text
-    for cmd in ["/aiimg", "/toimg", "/draw"]:
-        if prompt2.startswith(cmd):
-            prompt2 = prompt2[len(cmd):].strip()
-    # prompt1
-    prompt1 = event.reply.message.extract_plain_text().strip() if event.reply else ""
-    # 合并
-    prompt = (prompt2 + " " + prompt1).strip() or DEFAULT_GEN_PROMPT
-    #result = await text_to_image_lite(prompt)
-    result = await callModelImage(prompt) 
-    if isinstance(result, MessageSegment):
-        await matcher.finish(Message(result))
-    else:
-        await matcher.finish(result)
-
-import os
-import json
-from tencentcloud.common import credential
-from tencentcloud.common.profile.client_profile import ClientProfile
-from tencentcloud.common.profile.http_profile import HttpProfile
-from tencentcloud.common.exception.tencent_cloud_sdk_exception import TencentCloudSDKException
-from tencentcloud.hunyuan.v20230901 import hunyuan_client, models
-import httpx
-from nonebot.adapters.onebot.v11 import MessageSegment
-
-async def text_to_image_lite(prompt: str) -> MessageSegment:
-    """调用腾讯云轻量版文生图API"""
     try:
-        cred = credential.Credential(
-            os.getenv("TENCENTCLOUD_SECRET_ID", SECRET_ID),
-            os.getenv("TENCENTCLOUD_SECRET_KEY", SECRET_KEY)
+        completion = client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "your_site_url",  # Replace with your site URL
+                "X-Title": "*",  # Replace with your site name
+            },
+            model="google/gemini-2.5-flash-image-preview",
+            messages=messages,
+            timeout=60  # Add a timeout
         )
-        httpProfile = HttpProfile()
-        httpProfile.endpoint = "hunyuan.tencentcloudapi.com"
-        clientProfile = ClientProfile()
-        clientProfile.httpProfile = httpProfile
-        client = hunyuan_client.HunyuanClient(cred, "ap-guangzhou", clientProfile)
-
-        req = models.TextToImageLiteRequest()
-        params = {
-            "Prompt": prompt,
-            "RspImgType": "url"
-        }
-        req.from_json_string(json.dumps(params))
-        resp = client.TextToImageLite(req)
-        img_url = resp.ResultImage
-        return MessageSegment.image(img_url)
-    except TencentCloudSDKException as err:
-        return f"❌ 腾讯云SDK错误: {str(err)}"
+        # 遍历所有choices，优先返回图片data uri，否则拼接所有文本
+        image_data_uri = None
+        texts = []
+        for choice in completion.choices:
+            content = choice.message.content
+            if isinstance(content, str) and content.startswith("data:image/"):
+                image_data_uri = content
+                break
+            elif isinstance(content, str):
+                texts.append(content)
+        if image_data_uri:
+            return image_data_uri
+        else:
+            return "\n".join(texts)
     except Exception as e:
-        return f"⚠️ 错误: {str(e)}"
+        return f"OpenRouter API 调用失败: {e}"
 
+async def call_xqm(image_url: Optional[str], text: str, 
+                   model: str = "google/gemini-2.5-flash-image",
+                   provider: str = "") -> str:
+    """
+    直接通过 HTTP POST 调用 xqm32.org 的 API，返回内容为 result。
+    """
+    url = "https://*.xqm32.org/api/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json"
+    }
+    messages = [{
+        "role": "user",
+        "content": [{"type": "text", "text": text}]
+    }]
+    if image_url:
+        messages[0]["content"].append({
+            "type": "image_url",
+            "image_url": {"url": image_url}
+        })
+    data = {
+        "model": model,
+        "messages": messages,
+        "stream": False
+    }
+    if provider:
+        # 使用 extra_body.provider.order 以强制路由到指定供应商（等价于示例中的 provider.order）
+        data["extra_body"] = {
+            "provider": {
+                "order": [provider]
+            }
+        }
+    try:
+        content = ""
+        async with httpx.AsyncClient(timeout=300) as client:
+            resp = await client.post(url, headers=headers, json=data)
+            resp.raise_for_status()
+            result = resp.json()
+            # print(result)
+            # 新结构处理
+            for choice in result.get("choices", []):
+                msg = choice.get("message", {})
+                images = msg.get("images", [])
+                if images:
+                    for img in images:
+                        url = img.get("image_url", {}).get("url")
+                        print(f"get url: {url[:14]}...")  # 修复bug，显示前14位
+                        if url and is_data_uri(url):
+                            return url  # 返回图片直链
+                else:
+                    print(f"no images for this request, {msg}")
+                content += "\n" + msg.get("content")
+            if content:
+                return content
+            return "未获取到有效回复"
+    except Exception as e:
+        return f'hachibot API 调用失败: {str(e).replace(url, "*")}'
+
+def is_data_uri(s: str) -> bool:
+    return isinstance(s, str) and (s.startswith("data") or s.startswith("http")) 
+
+@aiimg.handle()
+async def handle_aiimg(bot, matcher: Matcher, event: Event, args: Message = CommandArg()):
+    """处理 /aiimg 命令."""
+    image_url = None
+    text = "Draw a picture of the following requests:"  # Default prompt
+
+    # 1. 寻找图片 URL
+    image_url = await process_image(event)
+
+    # 2. 寻找文本
+    if event.reply:
+        text += event.reply.message.extract_plain_text() + "\n"
+    text += args.extract_plain_text()
+
+    if not text:
+        text = "Draw a picture of klee"  # Default prompt
+
+    # 3. 调用 OpenRouter API
+    if not image_url or not is_data_uri(image_url):
+        result = await call_xqm(None, text)
+    else:
+        result = await call_xqm(image_url, text)
+
+    # 4. 构造回复内容
+    if is_data_uri(result):
+        # data:image/png;base64,xxxx
+        await matcher.finish(MessageSegment.image(result))
+    else:
+        await autoWrapMessage(bot, event, matcher, result)
+
+@imgai.handle()
+async def handle_imgai(bot, matcher: Matcher, event: Event, args: Message = CommandArg()):
+    """处理 /imgai 命令."""
+    image_url = None
+    text = "Explain this image:"
+
+    # 1. 寻找图片 URL
+    image_url = await process_image(event)
+    if not image_url:
+        await matcher.finish("图片解析失败")
+
+    # 2. 寻找文本
+    if event.reply:
+        text += event.reply.message.extract_plain_text() + "\n"
+    text += args.extract_plain_text()
+
+
+    if is_data_uri(image_url):
+        # 3. 调用 OpenRouter API
+        result = await callSfVLM(text, [image_url], "deepseek-ai/DeepSeek-OCR")
+        # result = await call_xqm(image_url, text, "qwen/qwen3-vl-235b-a22b-instruct")
+        if is_data_uri(result):
+            # 4. 构造回复内容
+            # data:image/png;base64,xxxx
+            await matcher.finish(MessageSegment.image(result))
+        else:
+            await autoWrapMessage(bot, event, matcher, result)
+    else:
+        await autoWrapMessage(bot, event, matcher, image_url)
+
+@aiimg2.handle()
+async def handle_aiimg2(bot, matcher: Matcher, event: Event, args: Message = CommandArg()):
+    text = "Draw a picture of the following requests:"  # Default prompt
+
+    # 1. 寻找图片 URL
+    image_url = await process_image(event)
+
+    # 2. 寻找文本
+    if event.reply:
+        text += event.reply.message.extract_plain_text() + "\n"
+    text += args.extract_plain_text()
+
+    # 3. 调用 OpenRouter API
+    try:
+        if not image_url or not is_data_uri(image_url):
+            result = await callSFImg(text, "Qwen/Qwen-Image")
+        else:
+            result = await callSFImg(text, "Qwen/Qwen-Image-Edit-2509", image_url)
+
+        # 4. 构造回复内容
+        if is_data_uri(result):
+            # data:image/png;base64,xxxx
+            await matcher.finish(MessageSegment.image(result))
+        else:
+            await autoWrapMessage(bot, event, matcher, result)
+    except Exception as e:
+        # 提取异常信息的前30个字符
+        error_msg = str(e)[:30]
+        println(f"生成图片失败: {error_msg}")
