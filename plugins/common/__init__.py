@@ -6,7 +6,8 @@ from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11.helpers import extract_image_urls
 
 from .config import Config
-from .callSFImg import callSFImg, callSfVLM
+from .callSFImg import callSFImg, callSfVLM, callLLM
+from .tencent_moderator import TencentTextModerator
 from typing import List
 
 __plugin_meta__ = PluginMetadata(
@@ -95,5 +96,5 @@ def extract_text(event: MessageEvent) -> (str, str):
 
     return (text, replyText)
 
-__all__ = ["autoWrapMessage", "wrapMessageForward", "splitTextToChunks", "callSFImg", "callSfVLM",
-"get_image_data_url", "extract_image_data_url", "extract_text"]
+__all__ = ["autoWrapMessage", "wrapMessageForward", "splitTextToChunks", "callSFImg", "callSfVLM", "callLLM",
+"get_image_data_url", "extract_image_data_url", "extract_text", "TencentTextModerator"]
