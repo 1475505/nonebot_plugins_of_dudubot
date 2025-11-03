@@ -91,29 +91,34 @@ async def handle_moderation(bot: Bot, event: MessageEvent):
         await moderation_guarder.send(response, at_sender=True)
         return
 
-    # 检查缓存，1小时内不再重复审查
+    # 检查缓存，30min内不再重复审查
     current_time = time.time()
     cache_key = f"{user_id}"
     if cache_key in moderation_cache:
         last_moderation_time = moderation_cache[cache_key]
-        if current_time - last_moderation_time < 3600:  # 1小时 = 3600秒
+        if current_time - last_moderation_time < 1800:  # 0.5小时 = 1800秒
             logger.debug(f"用户 {user_id} 在1小时内已触发过审查，跳过本次审查")
             return
 
     try:
         logger.info(f"开始对用户 {user_id} 的消息进行审查: {message_text[:50]}...")
 
-        # 腾讯云文本审查
-        is_pass, result = await moderator.check_text(message_text)
+        # 原腾讯云文本审查机制（已注释）
+        # is_pass, result = await moderator.check_text(message_text)
+        # if not is_pass:
+        #     logger.warning(f"用户 {user_id} 消息未通过审查: {result}")
+        #     moderation_cache[cache_key] = current_time
+        #     response = await generate_moderation_response(replySz)
+        #     await moderation_guarder.send(response, at_sender=True)
+        # else:
+        #     logger.info(f"用户 {user_id} 的消息通过审查")
 
-        if not is_pass:
-            logger.warning(f"用户 {user_id} 消息未通过审查: {result}")
-
-            # 记录审查缓存，1小时内不再审查
+        # 使用大模型进行文本审查并生成回复
+        response = await check_and_respond(message_text)
+        if response:
+            logger.warning(f"用户 {user_id} 消息被判定为不适合日常聊天展示")
+            # 记录审查缓存，半小时内不再审查
             moderation_cache[cache_key] = current_time
-
-            # 调用LLM生成回复
-            response = await generate_moderation_response(replySz)
             await moderation_guarder.send(response, at_sender=True)
         else:
             logger.info(f"用户 {user_id} 的消息通过审查")
@@ -176,7 +181,7 @@ async def detect_and_translate(text: str) -> str:
 请直接输出翻译结果，不要包含任何其他解释。"""
 
         logger.debug("调用LLM进行日文翻译...")
-        response = await callLLM(prompt, model="deepseek/deepseek-chat-v3-0324:free")
+        response = await callLLM(prompt, model="z-ai/glm-4.5-air:free")
         logger.debug(f"LLM翻译响应: {response}")
 
         translation = response.strip()
@@ -192,11 +197,73 @@ async def detect_and_translate(text: str) -> str:
 
     return ""
 
-async def generate_moderation_response(txtSz: int) -> str:
-    """生成基于当前时间的哲学/古典句子作为审查回复"""
+async def check_and_respond(text: str) -> str:
+    """使用大模型一次性完成文本审查和回复生成"""
     # 获取完整时间戳
     now = datetime.now()
-    timestamp_str = now.strftime("%Y%m%d%H%M%S%S")
+    # 格式：年月日时分秒毫秒，例如 20251103204556789
+    timestamp_str = f"{now.year:04d}{now.month:02d}{now.day:02d}{now.hour:02d}{now.minute:02d}{now.second:02d}{now.microsecond//1000:03d}"
+    timestamp = int(timestamp_str)
+
+    # 根据时间戳取模选择创作方向
+    direction = timestamp % 3
+    directions = [
+        "寓意美好的中国古代流行诗句，如唐诗、诗经、宋词等（示例：春江花月夜，请选择其他类似诗句）",
+        "近现代中外经典哲学名句，如莎士比亚、泰戈尔、鲁迅等（示例：每一个不曾起舞的日子...，请选择其他类似名句）",
+        "流行电影/二次元游戏/《原神》游戏台词（示例：「花车颠呀颠，纳西妲睁开眼」，请选择其他类似台词）"
+    ]
+    selected_direction = directions[direction]
+
+    prompt = f"""{text}
+----
+任务：先判断以上文本是否符合下面的情况，不适合在日常聊天展示：
+1. 色情低俗
+2. 辱骂谩骂
+3. 不良价值观
+
+请先返回判断结果，如果文本不适合展示，则同时生成经典句子回复。
+
+请严格按照以下JSON格式返回：
+{{
+  "is_appropriate": true,  // 是否适合日常聊天展示
+  "inappropriate_reasons": ["原因1", "原因2"],  // 不适合的原因（仅当is_appropriate为false时）
+  "poetry_content": "[经典句子] —— [作者/出处]\n[English translation]",  // 哲学/古典句子内容（仅当is_appropriate为false时）
+  "category": "古诗/现代文学/影视台词"  // 诗词类别（仅当is_appropriate为false时）
+}}
+
+请结合当前时间戳：{timestamp_str} 进行创作，方向（仅在is_appropriate为false时使用）：{selected_direction}
+
+注意：创作方向中的示例仅供参考，请选择该类别下的其他经典句子，不要直接使用提到的示例。
+
+请直接输出JSON，无需解释。"""
+
+    try:
+        # 使用callLLM函数调用LLM，启用JSON输出
+        response = await callLLM(prompt, model="openai/gpt-oss-20b:free", json_output=True)
+        response = response.strip()
+
+        # 解析JSON响应
+        try:
+            result = json.loads(response)
+            if not result.get("is_appropriate", True) and result.get("poetry_content"):
+                logger.info(f"文本不适合展示，原因: {result.get('inappropriate_reasons', [])}, 类别: {result.get('category', '未知')}")
+                return "\n" + result["poetry_content"]
+            else:
+                logger.debug("文本适合日常聊天展示")
+                return ""
+        except json.JSONDecodeError:
+            logger.error(f"LLM返回的JSON格式错误: {response}")
+            return ""
+    except Exception as e:
+        logger.error(f"LLM调用失败: {e}")
+        return ""
+
+async def generate_moderation_response(txtSz: int) -> str:
+    """生成基于当前时间的哲学/古典句子作为审查回复（保留原函数以兼容）"""
+    # 获取完整时间戳
+    now = datetime.now()
+    # 格式：年月日时分秒毫秒，例如 20251103204556789
+    timestamp_str = f"{now.year:04d}{now.month:02d}{now.day:02d}{now.hour:02d}{now.minute:02d}{now.second:02d}{now.microsecond//1000:03d}"
     timestamp = int(timestamp_str)
 
     # 根据时间戳取模选择创作方向
@@ -215,8 +282,8 @@ async def generate_moderation_response(txtSz: int) -> str:
 创作方向：{selected_direction}
 
 格式：
-[经典句子] —— [作者/出处]
-[English translation]
+经典句子 —— 作者/出处
+(English translation)
 
 请直接输出，无需解释。"""
 
