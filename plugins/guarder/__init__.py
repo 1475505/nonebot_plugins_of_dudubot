@@ -29,7 +29,7 @@ moderator = TencentTextModerator(
     region=config.tencent_region
 )
 
-# 审查缓存，避免1小时内重复审查
+# 审查缓存，避免重复审查
 moderation_cache: Dict[str, float] = {}
 
 def should_moderate_group(group_id: str) -> bool:
@@ -59,10 +59,10 @@ def should_moderate_group(group_id: str) -> bool:
     return False
 
 # 审查守卫监听器，block=False
-moderation_guarder = on_message(priority=1, block=False)
+moderation_guarder = on_message(priority=1000, block=False)
 
 # 翻译守卫监听器，block=False
-translation_guarder = on_message(priority=6, block=False)
+translation_guarder = on_message(priority=1, block=False)
 
 @moderation_guarder.handle()
 async def handle_moderation(bot: Bot, event: MessageEvent):
@@ -83,10 +83,10 @@ async def handle_moderation(bot: Bot, event: MessageEvent):
     if not message_text:
         return
 
-    replySz = 50
+    replySz = 60
     blackTexts = ['jb', '🦌', '龟头', '撸', '鸡巴']
     if any(blackText in message_text for blackText in blackTexts):
-        replySz = 15
+        replySz = 25
         response = await generate_moderation_response(replySz)
         await moderation_guarder.send(response, at_sender=True)
         return
@@ -208,45 +208,44 @@ async def check_and_respond(text: str) -> str:
     # 根据时间戳取模选择创作方向
     direction = timestamp % 3
     directions = [
-        "寓意美好的中国古代流行诗句，如唐诗、诗经、宋词等（示例：春江花月夜，请选择其他类似诗句）",
-        "近现代中外经典哲学名句，如莎士比亚、泰戈尔、鲁迅等（示例：每一个不曾起舞的日子...，请选择其他类似名句）",
-        "流行电影/二次元游戏/《原神》游戏台词（示例：「花车颠呀颠，纳西妲睁开眼」，请选择其他类似台词）"
+        "寓意美好/赞美良辰美景的中国古代流行诗文，如唐诗、诗经、宋词等（示例：春江花月夜、滕王阁序，请选择其他类似诗句）",
+        "近现代中外经典哲学名句，如鲁迅等（示例：每一个不曾起舞的日子...，请选择其他类似名句）",
+        "流行电影/二次元游戏台词（示例：「花车颠呀颠，纳西妲睁开眼」--原神，请选择其他类似台词）"
     ]
     selected_direction = directions[direction]
 
     prompt = f"""{text}
 ----
-任务：先判断以上文本是否符合下面的情况，不适合在日常聊天展示：
+任务：判断以上文本是否符合下面不适合在聊天中展示的情况：
 1. 色情低俗
 2. 辱骂谩骂
-3. 不良价值观
+3. 令人强烈不适的不良价值观
 
-请先返回判断结果，如果文本不适合展示，则同时生成经典句子回复。
+请先返回判断结果，如果文本符合不适合在聊天中展示的情况，则同时检索优美的句子回复。
+请[充分结合]当前时间：{timestamp_str} 进行检索，方向（仅在is_appropriate为false时使用）：{selected_direction}.
+注意：方向中的示例仅供参考，请根据当前时间引用合适的句子，不要直接使用提到的示例。引用的句子应高于高中语文水平,与当前时间相关,不要过于简单.
 
 请严格按照以下JSON格式返回：
 {{
-  "is_appropriate": true,  // 是否适合日常聊天展示
-  "inappropriate_reasons": ["原因1", "原因2"],  // 不适合的原因（仅当is_appropriate为false时）
-  "poetry_content": "[经典句子] —— [作者/出处]\n[English translation]",  // 哲学/古典句子内容（仅当is_appropriate为false时）
-  "category": "古诗/现代文学/影视台词"  // 诗词类别（仅当is_appropriate为false时）
+  "is_appropriate": true,  // 是否很不适合日常聊天展示
+  "inappropriate_reasons": ["1", "3"],  // 不适合的情况（仅当is_appropriate为false时）
+  "poetry_content": "经典句子 —— 作者/出处\n(English translation)"  // 根据当前时间引用的美好句子内容（仅当is_appropriate为false时）
 }}
 
-请结合当前时间戳：{timestamp_str} 进行创作，方向（仅在is_appropriate为false时使用）：{selected_direction}
 
-注意：创作方向中的示例仅供参考，请选择该类别下的其他经典句子，不要直接使用提到的示例。
 
 请直接输出JSON，无需解释。"""
 
     try:
         # 使用callLLM函数调用LLM，启用JSON输出
-        response = await callLLM(prompt, model="openai/gpt-oss-20b:free", json_output=True)
+        response = await callLLM(prompt, model="openrouter/polaris-alpha", json_output=True)
         response = response.strip()
 
         # 解析JSON响应
         try:
             result = json.loads(response)
             if not result.get("is_appropriate", True) and result.get("poetry_content"):
-                logger.info(f"文本不适合展示，原因: {result.get('inappropriate_reasons', [])}, 类别: {result.get('category', '未知')}")
+                logger.info(f"文本不适合展示，原因: {result.get('inappropriate_reasons', [])}, 类别: {selected_direction}")
                 return "\n" + result["poetry_content"]
             else:
                 logger.debug("文本适合日常聊天展示")

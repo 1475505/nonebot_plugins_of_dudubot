@@ -74,4 +74,9 @@ async def handle_goose(event: GroupMessageEvent):
         img = MessageSegment.image(image_path)
 
         await goose_matcher.finish(img)
+    elif "bot群" in text:
+        state[group_id] = today
+        save_state(state)
+
+        await goose_matcher.finish("玩刷屏游戏的话，可以进群 1030307936 （https://qm.qq.com/q/Zinx0Q7HOK）")
         
