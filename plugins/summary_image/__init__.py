@@ -1,4 +1,4 @@
-from nonebot import on_command
+from nonebot import on_command, get_driver
 from nonebot.adapters.onebot.v11 import Message, MessageSegment, Event, MessageEvent
 from nonebot.params import CommandArg
 from nonebot.matcher import Matcher
@@ -7,7 +7,8 @@ from openai import OpenAI
 import os
 import asyncio
 from typing import Optional, Dict, Any
-from plugins.common import autoWrapMessage, callSFImg, callSfVLM
+from plugins.common import autoWrapMessage, callSFImg, callSfVLM, limiter, callDoubaoImage
+from nonebot import get_plugin_config
 import re
 import base64
 import httpx
@@ -15,6 +16,11 @@ import httpx
 imgai = on_command("imgai", priority=5)
 aiimg = on_command("aiimg", priority=5)
 aiimg2 = on_command("aiimg2", priority=10)
+aiimg3 = on_command("aiimg3", priority=15)
+aiimg4 = on_command("aiimg4", priority=16)
+
+config = get_driver().config
+
 
 async def get_image_data_url(img_url: str) -> str:
     """将图片URL转换为base64格式的data URL"""
@@ -54,7 +60,7 @@ async def process_image(event: MessageEvent) -> str:
 async def call_openrouter(image_url: Optional[str], text: str) -> str:
     """调用 OpenRouter API."""
     client = OpenAI(
-        base_url="https://*.xqm32.org/api/v1",
+        base_url="https://hachibot.xqm32.org/api/v1",
         api_key="sk-noneed",
     )
 
@@ -71,7 +77,7 @@ async def call_openrouter(image_url: Optional[str], text: str) -> str:
         completion = client.chat.completions.create(
             extra_headers={
                 "HTTP-Referer": "your_site_url",  # Replace with your site URL
-                "X-Title": "*",  # Replace with your site name
+                "X-Title": "DuduBot",  # Replace with your site name
             },
             model="google/gemini-2.5-flash-image-preview",
             messages=messages,
@@ -95,15 +101,22 @@ async def call_openrouter(image_url: Optional[str], text: str) -> str:
         return f"OpenRouter API 调用失败: {e}"
 
 async def call_xqm(image_url: Optional[str], text: str, 
-                   model: str = "google/gemini-2.5-flash-image",
-                   provider: str = "") -> str:
+                   model: str = "google/gemini-3-pro-image-preview",
+                   provider: str = "",
+                   url = "https://hachibot.xqm32.org/api/v1/chat/completions") -> str:
     """
     直接通过 HTTP POST 调用 xqm32.org 的 API，返回内容为 result。
     """
-    url = "https://*.xqm32.org/api/v1/chat/completions"
+    
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
+    if "https://api.chatanywhere.tech/" in url:
+        api_key = os.environ.get("CHATANY_API_KEY", "")
+        headers["Authorization"] = f"Bearer {api_key}"
+    if "https://openrouter.ai/api/v1" in url:
+        api_key = os.environ.get("MY_OR_KEY", "")
+        headers["Authorization"] = f"Bearer {api_key}"
     messages = [{
         "role": "user",
         "content": [{"type": "text", "text": text}]
@@ -127,7 +140,7 @@ async def call_xqm(image_url: Optional[str], text: str,
         }
     try:
         content = ""
-        async with httpx.AsyncClient(timeout=300) as client:
+        async with httpx.AsyncClient(timeout=600) as client:
             resp = await client.post(url, headers=headers, json=data)
             resp.raise_for_status()
             result = resp.json()
@@ -135,6 +148,16 @@ async def call_xqm(image_url: Optional[str], text: str,
             # 新结构处理
             for choice in result.get("choices", []):
                 msg = choice.get("message", {})
+                # 检查 content 中的 markdown 图片
+                msg_content = msg.get("content", "")
+                if msg_content:
+                    match = re.search(r'!\[.*?\]\((.*?)\)', msg_content)
+                    if match:
+                        url = match.group(1)
+                        print(f"get markdown url: {url[:14]}...")
+                        if url and is_data_uri(url):
+                            return url
+
                 images = msg.get("images", [])
                 if images:
                     for img in images:
@@ -143,19 +166,36 @@ async def call_xqm(image_url: Optional[str], text: str,
                         if url and is_data_uri(url):
                             return url  # 返回图片直链
                 else:
-                    print(f"no images for this request, {msg}")
-                content += "\n" + msg.get("content")
+                    print(f"no images for this request, {str(msg)[:200]}")
+                content += "\n" + str(msg_content)
             if content:
                 return content
             return "未获取到有效回复"
     except Exception as e:
-        return f'hachibot API 调用失败: {str(e).replace(url, "*")}'
+        return f'API 调用失败: {str(e).replace(url, url[:14])}'
 
 def is_data_uri(s: str) -> bool:
     return isinstance(s, str) and (s.startswith("data") or s.startswith("http")) 
 
 @aiimg.handle()
-async def handle_aiimg(bot, matcher: Matcher, event: Event, args: Message = CommandArg()):
+async def handle_aiimg(bot, matcher: Matcher, event: Event, args: Message = CommandArg(), model="gemini-3-pro-image-preview",
+url="https://api.chatanywhere.tech/v1/chat/completions"):
+    user_id = event.user_id
+    
+    special_dict = {
+        "1211660648": -1,
+        "1553636305": -1, # 好哥哥们求求你啦
+        "725230880": 30,
+        "458173774": 10,
+        "2735274489": 10,
+        "2438771332": -1,
+        "1063438541": 15
+    }
+    
+    # 限制调用频率：192小时内最多4次
+    if not limiter.checkWithSpecialUsers("aiimg", str(user_id), 192 * 60, 4, special_dict):
+        await matcher.finish("没钱生图了，赞助嘟嘟bot以提升限额（感谢xqm, 氢原子）")
+    
     """处理 /aiimg 命令."""
     image_url = None
     text = "Draw a picture of the following requests:"  # Default prompt
@@ -173,9 +213,19 @@ async def handle_aiimg(bot, matcher: Matcher, event: Event, args: Message = Comm
 
     # 3. 调用 OpenRouter API
     if not image_url or not is_data_uri(image_url):
-        result = await call_xqm(None, text)
+        result = await call_xqm(None, text, 
+        url=url, 
+        model=model
+        #model="gemini-3-pro-image-preview"
+        #model="gemini-2.5-flash-image-preview"
+        )
     else:
-        result = await call_xqm(image_url, text)
+        result = await call_xqm(image_url, text, 
+        url=url,
+        model=model
+        #model="gemini-3-pro-image-preview"
+        #model="gemini-2.5-flash-image-preview"
+        )
 
     # 4. 构造回复内容
     if is_data_uri(result):
@@ -186,7 +236,6 @@ async def handle_aiimg(bot, matcher: Matcher, event: Event, args: Message = Comm
 
 @imgai.handle()
 async def handle_imgai(bot, matcher: Matcher, event: Event, args: Message = CommandArg()):
-    """处理 /imgai 命令."""
     image_url = None
     text = "Explain this image:"
 
@@ -203,8 +252,12 @@ async def handle_imgai(bot, matcher: Matcher, event: Event, args: Message = Comm
 
     if is_data_uri(image_url):
         # 3. 调用 OpenRouter API
-        result = await callSfVLM(text, [image_url], "deepseek-ai/DeepSeek-OCR")
-        # result = await call_xqm(image_url, text, "qwen/qwen3-vl-235b-a22b-instruct")
+        result = await callSfVLM(text, [image_url], "ep-20251206222208-k45ft",
+        img_field="input_image", txt_field="input_text",
+        url=getattr(config, "openai_base_url", ""),
+        token=getattr(config, "openai_api_key", "")
+        )
+        #result = await callSfVLM(text, [image_url], "Qwen/Qwen3-VL-32B-Thinking")
         if is_data_uri(result):
             # 4. 构造回复内容
             # data:image/png;base64,xxxx
@@ -216,6 +269,15 @@ async def handle_imgai(bot, matcher: Matcher, event: Event, args: Message = Comm
 
 @aiimg2.handle()
 async def handle_aiimg2(bot, matcher: Matcher, event: Event, args: Message = CommandArg()):
+    await handle_aiimg(bot, matcher, event, args, model="gemini-2.5-flash-image-preview")
+    return
+
+@aiimg4.handle()
+async def handle_aiimg4(bot, matcher: Matcher, event: Event, args: Message = CommandArg()):
+    """处理 /aiimg4 命令."""
+    if not limiter.check("aiimg4", "*", 24 * 60, 10):
+        await matcher.finish("豆包生图限每日10张，使用其他渠道，或赞助嘟嘟bot以提升限额（感谢xqm, 氢原子）")
+    model = "doubao-seedream-4-0-250828"
     text = "Draw a picture of the following requests:"  # Default prompt
 
     # 1. 寻找图片 URL
@@ -229,9 +291,9 @@ async def handle_aiimg2(bot, matcher: Matcher, event: Event, args: Message = Com
     # 3. 调用 OpenRouter API
     try:
         if not image_url or not is_data_uri(image_url):
-            result = await callSFImg(text, "Qwen/Qwen-Image")
+            result = await callDoubaoImage(text, model)
         else:
-            result = await callSFImg(text, "Qwen/Qwen-Image-Edit-2509", image_url)
+            result = await callDoubaoImage(text, model, image_url)
 
         # 4. 构造回复内容
         if is_data_uri(result):
@@ -242,4 +304,10 @@ async def handle_aiimg2(bot, matcher: Matcher, event: Event, args: Message = Com
     except Exception as e:
         # 提取异常信息的前30个字符
         error_msg = str(e)[:30]
-        println(f"生成图片失败: {error_msg}")
+        print(f"生成图片失败: {error_msg}")
+
+@aiimg3.handle()
+async def handle_aiimg3(bot, matcher: Matcher, event: Event, args: Message = CommandArg()):
+    await handle_aiimg(bot, matcher, event, args, model="google/gemini-3-pro-image-preview", 
+    url="https://openrouter.ai/api/v1/chat/completions")
+    return

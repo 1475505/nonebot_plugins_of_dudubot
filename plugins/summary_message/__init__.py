@@ -1,4 +1,6 @@
 import traceback
+import re
+import httpx
 
 import nonebot
 from nonebot.adapters import Bot, Event
@@ -64,7 +66,7 @@ async def callModelChat(model: str, content: str, temperature: float = 1.0, top_
 
 
 @conclude.handle()
-async def handle_reply(event: GroupMessageEvent):
+async def handle_reply(bot: Bot, event: GroupMessageEvent):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = replied_content or content or "嘟嘟可是好人"
@@ -77,24 +79,24 @@ async def handle_reply(event: GroupMessageEvent):
     你需要处理的文本是：
     """ + input_content
     response = await callModel(OFFLINE_MODEL, prompt)
-    await conclude.finish(response.content, at_sender=True)
+    await autoWrapMessage(bot, event, conclude, response.content, limit=400)
 
 from nonebot.params import CommandArg
 
 webexplain = on_command("说明", aliases = {"搜索"}, priority=14, block=True)
 @webexplain.handle()
-async def handle_reply_webexplain(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def handle_reply_webexplain(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = replied_content or msg.extract_plain_text().strip() or "嘟嘟可"
     prompt = input_content + "是什么? 根据网络搜索结果, 简单回答"
     response = await callModel(DEEPSEEK_MODEL, prompt)
-    await webexplain.finish(response.content, at_sender=True)
+    await autoWrapMessage(bot, event, webexplain, response.content, limit=400)
 
 
 zdict = on_command("扫盲", aliases={"何意味"}, priority=13, block=True)
 @zdict.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = replied_content or msg.extract_plain_text().strip() or "嘟嘟可"
@@ -110,7 +112,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     prompt1 = f"""Q: "{input_content}"是什么意思? 给出拼音/音标和解释"""
     if len(input_content) > 4:
         prompt1 =  f"""Q:"{input_content}"里有1-2个字/词/网络梗难以理解，请解释难理解的部分,并给出拼音/音标."""
-    
+
     prompt3 = f"""
         \n (重点关注领域/文本:{field})
     """
@@ -120,11 +122,11 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     #response = await callModel("Pro/moonshotai/Kimi-K2-Instruct", prompt, 0.2, 0.7)
     response = await callModel(DEEPSEEK_MODEL, prompt, 0.2, 0.7)
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
-    await zdict.finish(response.content.strip())
+    await autoWrapMessage(bot, event, zdict, response.content.strip(), limit=400)
 
 quest = on_command("质疑", priority=13, block=True)
 @quest.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = replied_content or msg.extract_plain_text().strip() or "嘟嘟可很会写Java"
@@ -137,31 +139,31 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     你需要处理的文本是：
     """ + input_content
     response = await callModel(OFFLINE_MODEL, prompt)
-    await quest.finish(response.content, at_sender=True)
+    await autoWrapMessage(bot, event, quest, response.content, limit=400)
     
     
 
 commonai = on_command("安慰", aliases={"加emoji", "人话", "讲故事", "赞同", "附议", "夸夸", "锐评", "回答", "翻译", "攻击", "译中", "思考", "反思", "断句"}, priority=13, block=True)
 @commonai.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = (replied_content) or msg.extract_plain_text().strip() or "A股又跌了"
     command = event.get_plaintext().strip().split()[0][1:]
     # 对内容进行总结
     prompt = f"""
-        Alice: {input_content}
-        Bob: 请对Alice的话进行{command}, 需要具有同理心. 日常对话,不要长篇大论
+        User: {input_content}
+        Guyu: 请对User的话进行{command}, 需要具有同理心. 日常对话,不要长篇大论
         You（一位喜欢二次元的字节范儿程序员）：
     """
-    
+
     response = await callModel(OFFLINE_MODEL, prompt)
-    await zdict.finish("\n" + response.content, at_sender=True)
+    await autoWrapMessage(bot, event, commonai, "\n" + response.content, limit=400)
 
 import random
 mc = on_command("鸣式", priority=13, block=True)
 @mc.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = replied_content or msg.extract_plain_text().strip() or "耐心等待A股上涨"
@@ -201,12 +203,12 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
     response = await callModel(OFFLINE_MODEL, prompt)
-    await mc.finish("\n"+response.content, at_sender=True)
+    await autoWrapMessage(bot, event, mc, "\n"+response.content, limit=400)
 
 
 szg = on_command("丝之歌", aliases={"丝之歌体", "丝之歌式", "刘辉洲", "刘辉州", "古文小生", "szg式", "lhz式"}, priority=13, block=True)
 @szg.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = (replied_content + msg.extract_plain_text().strip()) or "上班压力很大"
@@ -214,26 +216,26 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     #    replied_content = replied_message.reply.message.extract_plain_text(a
     p = random.random()
     prompt = f"""
-    你现在是一名文盲“古风小生翻译”。请你强行乱用非口语词组与拟古词，把正常的白话中文译文增加一些矫揉造作、故弄玄虚的古语词,使其被改写成读之莫名其妙的话。不要遵守文言与诗歌语法，可以错置词性与语序,增加莫名其妙的谜语人语调等.请注意让人读起来不知所云，莫名其妙。输出对应的的玄虚版译文（字数请和原文大体一致）.
+    你现在是一名文盲"古风小生翻译"。请你强行乱用非口语词组与拟古词，把正常的白话中文译文增加一些矫揉造作、故弄玄虚的古语词,使其被改写成读之莫名其妙的话。不要遵守文言与诗歌语法，可以错置词性与语序,增加莫名其妙的谜语人语调等.请注意让人读起来不知所云，莫名其妙。输出对应的的玄虚版译文（字数请和原文大体一致）.
 
 三种风格范式示例：（仅作感触，勿照搬句式）：
-1. 
+1.
 正常译文：钟响七下后，烦请送出：30小节又4拍的「烟岩」，8拍的「甜熔渣」。
 玄虚译文：七钟响时运送：三十节又四奏烟岩，及八奏甜熔渣。
-2. 
+2.
 正常译文：我是路过周游的人。来者可是空洞骑士？
 玄虚译文：我力衰之躯只不过是一介旅行者.啊哈哈!可是洞之空骑士？
-3. 
+3.
 正常译文：猪被捕了。
 玄虚译文：豕遭擒获。
 -----
 现在开始(输出仅输出译文,不输出任何提示词和说明)：
-正常译文：{input_content} 
+正常译文：{input_content}
 玄虚译文：
     """
     prompt1 = f"""你现在是一名文盲古风小生诗人,文风矫揉造作,故弄玄虚. 请注意你是文盲,需要强行乱用非口语的语言（如"被囚禁多天""气力衰微"）和拟古词汇（如"奏"）将一句简单的话强行表达成很有逼格但人类不可理解的诗。请一定要让人读起来莫名其妙，不遵守文言文语法.
     诗文示例:
-    1. 
+    1.
   """
 
     prompt2 = f"""
@@ -248,7 +250,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     永远看见到处的妄光瘟疫
     尔是器血
     你是洞之空骑士
-    
+
 
     输入文本：{input_content}
     输出诗文:
@@ -258,12 +260,12 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 
     #response = await callModel("Pro/moonshotai/Kimi-K2-Instruct-0905", prompt)
     response = await callModel(OFFLINE_MODEL, prompt)
-    await szg.finish(response.content.strip(), at_sender=False)
+    await autoWrapMessage(bot, event, szg, response.content.strip(), limit=400)
 
 
 htx = on_command("何式", priority=13, block=True)
 @htx.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = (replied_content + msg.extract_plain_text().strip()) or "抽卡歪了"
@@ -295,12 +297,12 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
         prompt = prompt2
     #response = await callModel("Pro/deepseek-ai/DeepSeek-R1", prompt)
     response = await callModel(DEEPSEEK_MODEL, prompt)
-    await htx.finish("\n"+response.content, at_sender=True)
+    await autoWrapMessage(bot, event, htx, "\n"+response.content, limit=400)
 
 
 syntax = on_command("公式", aliases={"模仿", "鹦鹉", "复读", "咔库库"}, priority=13, block=True)
 @syntax.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     # 获取用户提供的额外参数作为格式模板
@@ -325,7 +327,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 
     #response = await callModel("Pro/moonshotai/Kimi-K2-Instruct-0905", prompt)
     response = await callModel(DEEPSEEK_MODEL, prompt)
-    await syntax.finish("\n"+response.content, at_sender=True)
+    await autoWrapMessage(bot, event, syntax, "\n"+response.content, limit=400)
 
 
 
@@ -342,7 +344,7 @@ async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
                 img_url = seg.data["url"]
                 txt = xf_ocr.ocr(img_url)
                 if len(txt) < 30:
-                    await ocr.finish(txt)
+                    await autoWrapMessage(bot, event, ocr, txt, limit=400)
                 else:
                     # 将长文本分段
                     segments = [txt[i:i+1000] for i in range(0, len(txt), 1000)]
@@ -373,7 +375,7 @@ Mods by User670
 '''
 user670_summary_dictionary = on_command("词典", priority=255, block=True)
 @user670_summary_dictionary.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = (replied_content + msg.extract_plain_text().strip()) or "嘟嘟可"
@@ -393,12 +395,12 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 用户提供的文本是：
 """ + input_content
     response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
-    await user670_summary_dictionary.finish("\n" + response.content, at_sender=True)
+    await autoWrapMessage(bot, event, user670_summary_dictionary, "\n" + response.content, limit=400)
 
 
 user670_summary_encyclopedia = on_command("百科", priority=255, block=True)
 @user670_summary_encyclopedia.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = (replied_content + msg.extract_plain_text().strip()) or "嘟嘟可"
@@ -412,12 +414,12 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 用户提供的文本是：
 """ + input_content
     response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
-    await user670_summary_encyclopedia.finish("\n" + response.content, at_sender=True)
+    await autoWrapMessage(bot, event, user670_summary_encyclopedia, "\n" + response.content, limit=400)
 
 
 user670_summary_meme = on_command("网络梗", priority=255, block=True)
 @user670_summary_meme.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = (replied_content + msg.extract_plain_text().strip()) or "嘟嘟可"
@@ -432,12 +434,12 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 用户提供的文本是：
 """ + input_content
     response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
-    await user670_summary_meme.finish("\n" + response.content, at_sender=True)
+    await autoWrapMessage(bot, event, user670_summary_meme, "\n" + response.content, limit=400)
 
 
 user670_summary_parse = on_command("解析", priority=255, block=True)
 @user670_summary_parse.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = (replied_content + msg.extract_plain_text().strip()) or "嘟嘟可"
@@ -451,7 +453,7 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 用户提供的文本是：
 """ + input_content
     response = await callModel("Pro/deepseek-ai/DeepSeek-V3", prompt)
-    await user670_summary_parse.finish("\n" + response.content, at_sender=True)
+    await autoWrapMessage(bot, event, user670_summary_parse, "\n" + response.content, limit=400)
 
 '''
 End of mods by User670
@@ -461,7 +463,7 @@ End of mods by User670
 # 宫崎英高小故事功能
 miyazaki_story = on_command("宫崎英高小故事", aliases={"宫崎英高", "魂游"},  priority=13, block=True)
 @miyazaki_story.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = (replied_content + msg.extract_plain_text().strip()) or "假篝火"
@@ -477,13 +479,13 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
     """
     
     response = await callModel(DEEPSEEK_MODEL, prompt)
-    await miyazaki_story.finish("\n" + response.content, at_sender=True)
+    await autoWrapMessage(bot, event, miyazaki_story, "\n" + response.content, limit=400)
 
 
 # 股民视角功能
 stock_perspective = on_command("利好", priority=13, block=True)
 @stock_perspective.handle()
-async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
     # 使用extract_text函数提取内容
     (content, replied_content) = await extract_text(event)
     input_content = (replied_content + msg.extract_plain_text().strip()) or "纳西妲真可爱"
@@ -501,4 +503,78 @@ async def _(event: GroupMessageEvent, msg: Message = CommandArg()):
 """
     
     response = await callModel(OFFLINE_MODEL, prompt)
-    await stock_perspective.finish("[不构成投资建议]  " + response.content, at_sender=False)
+    await autoWrapMessage(bot, event, stock_perspective, "[不构成投资建议]  " + response.content, limit=400)
+
+
+# 爬取功能
+crawl_web = on_command("爬取", priority=13, block=True)
+
+async def remove_urls_from_text(text: str) -> tuple[str, list[str]]:
+    """从文本中移除URL，并返回移除URL后的文本和找到的URL列表"""
+    import re
+    URL_PATTERN = re.compile(r'https?://[^\s\)]+')
+    urls = URL_PATTERN.findall(text)
+    # 移除URL并清理多余空格
+    clean_text = URL_PATTERN.sub('', text).strip()
+    return clean_text, urls
+
+async def fetch_url_content_via_jina(url: str) -> str:
+    """通过Jina AI获取网页内容"""
+    try:
+        jina_url = f"https://r.jina.ai/{url}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(jina_url)
+            response.raise_for_status()
+            return response.text
+    except Exception as e:
+        logger.error(f"获取URL内容失败 {url}: {e}")
+        return f"获取URL内容失败: {str(e)}"
+
+@crawl_web.handle()
+async def _(bot: Bot, event: GroupMessageEvent, msg: Message = CommandArg()):
+    # 使用extract_text函数提取内容
+    (content, replied_content) = await extract_text(event)
+    input_content = replied_content or msg.extract_plain_text().strip() or content
+
+    # 提取URL并移除URL获得问题文本
+    question_text, urls = await remove_urls_from_text(input_content)
+    if not question_text:
+        question_text, _ = await remove_urls_from_text(content)
+
+
+    if not urls:
+        await autoWrapMessage(bot, event, crawl_web, "未检测到URL，请确保消息中包含有效的网页链接", limit=400)
+        return
+
+    # 处理第一个URL
+    url = urls[0]
+
+    # 通过Jina AI获取网页内容
+    web_content = await fetch_url_content_via_jina(url)
+
+    if web_content.startswith("获取URL内容失败"):
+        await autoWrapMessage(bot, event, crawl_web, web_content, limit=400)
+        return
+
+    question_text = question_text.strip() or "一句话总结中心思想？"
+    # 构建处理提示词
+
+    prompt = f"""请对以下网页内容进行总结和分析，并回答用户的问题：
+网页内容:
+{web_content}
+
+用户问题:
+{question_text}
+
+请按照以下格式进行总结和回答：
+[网页内容]
+概括网页的主要内容和核心观点
+
+Q. [用户问题]
+A. 基于网页内容回答用户的问题
+
+（严格按照此格式，不要输出其他内容）
+"""
+
+    response = await callModel(OFFLINE_MODEL, prompt)
+    await autoWrapMessage(bot, event, crawl_web, response.content, limit=400)

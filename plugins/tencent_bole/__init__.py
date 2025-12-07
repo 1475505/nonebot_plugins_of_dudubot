@@ -66,7 +66,7 @@ async def handle_goose(event: GroupMessageEvent):
         img = MessageSegment.image(image_path)
 
         await goose_matcher.finish(img)
-    elif "鸟厂" in text:
+    elif "bytedance" in text.lower() or "字节跳动" in text or "火山引擎" in text:
         state[group_id] = today
         save_state(state)
 
