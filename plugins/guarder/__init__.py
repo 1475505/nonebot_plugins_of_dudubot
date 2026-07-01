@@ -17,14 +17,15 @@ config = Config.parse_obj(nonebot.get_driver().config.dict())
 
 MODERATION_MODEL=config.or_free_model2
 #MODERATION_MODEL="google/gemma-3-27b-it:free"
-#TRANSLATION_MODEL="z-ai/glm-4.5-air:free"
-TRANSLATION_MODEL="x-ai/grok-code-fast-1"
+TRANSLATION_MODEL=config.or_free_model2
+#TRANSLATION_MODEL="x-ai/grok-code-fast-1"
 
 # 审查守卫监听的QQ号列表
 MODERATION_QQ: Set[str] = {str(qq) for qq in config.moderation_qq}
 
 # 翻译守卫监听的QQ号列表
 TRANSLATION_QQ: Set[str] = {str(qq) for qq in config.translation_qq}
+TRANSLATION_GROUP_BLACKLIST: Set[str] = {str(group_id) for group_id in config.auto_translate_group_blacklist}
 
 # 群聊黑白名单
 GROUP_WHITELIST: Set[str] = {str(group_id) for group_id in config.group_whitelist}
@@ -70,6 +71,17 @@ moderation_guarder = on_message(priority=1000, block=False)
 # 翻译守卫监听器，block=False
 translation_guarder = on_message(priority=1000, block=False)
 
+# 英语语法检查监听器，block=False
+english_guarder = on_message(priority=1000, block=False)
+
+# 英语检查监听的QQ号列表
+ENGLISH_QQ: Set[str] = {str(qq) for qq in config.english_qq}
+
+# 英语检查监听的群聊白名单（与 ENGLISH_QQ 共同决定触发）
+ENGLISH_GROUP_WHITELIST: Set[str] = {str(group_id) for group_id in config.english_group_whitelist}
+
+ENGLISH_MODEL = config.llm_model
+
 @moderation_guarder.handle()
 async def handle_moderation(bot: Bot, event: MessageEvent):
     """处理消息审查"""
@@ -97,7 +109,7 @@ async def handle_moderation(bot: Bot, event: MessageEvent):
         await moderation_guarder.send(response, at_sender=True)
         return
 
-    # 检查缓存，45min内不再重复审查
+    # 检查缓存，30min内不再重复审查
     current_time = time.time()
     cache_key = f"{user_id}"
     if cache_key in moderation_cache:
@@ -136,9 +148,14 @@ async def handle_moderation(bot: Bot, event: MessageEvent):
 async def handle_translation(bot: Bot, event: MessageEvent):
     """处理语言检测和翻译"""
     user_id = event.user_id
+    group_id = getattr(event, 'group_id', None)
 
     # 只监听特定QQ号
     if str(user_id) not in TRANSLATION_QQ:
+        return
+    
+    # 只监听特定群聊
+    if str(group_id) in TRANSLATION_GROUP_BLACKLIST:
         return
 
     message_text = event.get_plaintext().strip()
@@ -159,6 +176,82 @@ async def handle_translation(bot: Bot, event: MessageEvent):
     except Exception as e:
         logger.error(f"翻译处理出错: {e}")
 
+
+@english_guarder.handle()
+async def handle_english(bot: Bot, event: MessageEvent):
+    """对白名单QQ或白名单群中的英文句子进行语法检查并在有严重语法错误时回复修正后的地道英语"""
+    user_id = event.user_id
+    group_id = getattr(event, 'group_id', None)
+
+    # 仅在白名单QQ且白名单群中处理（两个条件都必须满足）
+    if str(user_id) not in ENGLISH_QQ:
+        return
+    if not group_id or str(group_id) not in ENGLISH_GROUP_WHITELIST:
+        return
+
+    message_text = event.get_plaintext().strip()
+    if not message_text:
+        return
+
+    # 以 '/' 开头的命令类消息会跳过
+    if message_text.startswith('/'):
+        return
+
+    # 过滤掉含有中/日/韩字符（避免中英文混杂）
+    if contains_japanese(message_text) or contains_korean(message_text) or re.search(r'[\u4E00-\u9FFF]', message_text):
+        return
+
+    # 统计英文字母数量（A-Za-z），判断是否为 10~100 个英文字母
+    letters = re.findall(r'[A-Za-z]', message_text)
+    letter_count = len(letters)
+    if letter_count < 10 or letter_count > 100:
+        return
+
+    # 计算英文字母和常见英文符号所占比例（不计空白），要求>90%
+    text_no_ws = re.sub(r'\s+', '', message_text)
+    if not text_no_ws:
+        return
+    total_chars = len(text_no_ws)
+    allowed_chars = len(re.findall(r"[A-Za-z0-9\.\,\!\?\:\;\'\"\-\(\)\[\]\{\}\@\#\$\%\^\&\*\+\=\~\<\>\`\|\\\/ _…]", text_no_ws))
+    try:
+        if allowed_chars / total_chars < 0.9:
+            return
+    except ZeroDivisionError:
+        return
+
+    try:
+        logger.info(f"开始对用户 {user_id} 的英文句子进行语法检查: {message_text[:80]}...")
+
+        prompt = f"""
+请判断下面的英文句子是否存在严重的语法错误（例如句子结构不通、时态/主谓不一致、关键成分缺失导致意思不明等）。
+如果存在，请给出修正后的、地道的英文句子（只返回修正后的句子，不要多余说明）。
+如果不存在严重错误，请仅返回JSON表示结果。
+
+输入句子：{message_text}
+
+请严格返回JSON，格式如下：
+{{
+  "has_serious_errors": true/false,
+  "corrected": "..."
+}}
+"""
+
+        response = await callLLM(prompt, model=ENGLISH_MODEL, json_output=True)
+        response = response.strip()
+        try:
+            result = json.loads(response)
+            has_errors = bool(result.get('has_serious_errors', False))
+            corrected = result.get('corrected', '') or ''
+            if has_errors and corrected:
+                logger.info(f"发现严重语法错误，发送修正后的英文: {corrected}")
+                await english_guarder.send(corrected, at_sender=True)
+            else:
+                logger.debug(f"英文句子无严重语法错误: {message_text[:50]}...")
+        except json.JSONDecodeError:
+            logger.error(f"LLM返回的JSON格式错误（英文检查）: {response}")
+    except Exception as e:
+        logger.error(f"英文语法检查出错: {e}")
+
 def contains_japanese(text: str) -> bool:
     """检测文本是否包含日语字符"""
     # 日语字符范围：
@@ -166,7 +259,7 @@ def contains_japanese(text: str) -> bool:
     # \u30A0-\u30FF: 片假名
     # \u4E00-\u9FAF: 汉字（共用，但在特定上下文中可能是日语）
     japanese_chars = re.findall(r'[\u3040-\u309F\u30A0-\u30FF]', text)
-    return len(japanese_chars) > 0
+    return len(japanese_chars) > 1
 
 def contains_korean(text: str) -> bool:
     """检测文本是否包含韩语字符"""
@@ -334,6 +427,44 @@ def remove_translation_qq(qq_number: str) -> bool:
     if qq_number not in TRANSLATION_QQ:
         return False
     TRANSLATION_QQ.remove(qq_number)
+    return True
+
+def get_english_qq() -> Set[str]:
+    """获取英语检查监听QQ号列表"""
+    return ENGLISH_QQ.copy()
+
+def add_english_qq(qq_number: str) -> bool:
+    """添加QQ号到英语检查监听列表"""
+    if qq_number in ENGLISH_QQ:
+        return False
+    ENGLISH_QQ.add(qq_number)
+    return True
+
+def remove_english_qq(qq_number: str) -> bool:
+    """从英语检查监听列表中移除QQ号"""
+    if qq_number not in ENGLISH_QQ:
+        return False
+    ENGLISH_QQ.remove(qq_number)
+    return True
+
+def get_english_group_whitelist() -> Set[str]:
+    """获取英语检查监听的群聊白名单"""
+    return ENGLISH_GROUP_WHITELIST.copy()
+
+def add_english_group_whitelist(group_id: str) -> bool:
+    """添加群聊到英语检查的群聊白名单"""
+    group_id_str = str(group_id)
+    if group_id_str in ENGLISH_GROUP_WHITELIST:
+        return False
+    ENGLISH_GROUP_WHITELIST.add(group_id_str)
+    return True
+
+def remove_english_group_whitelist(group_id: str) -> bool:
+    """从英语检查的群聊白名单中移除群聊"""
+    group_id_str = str(group_id)
+    if group_id_str not in ENGLISH_GROUP_WHITELIST:
+        return False
+    ENGLISH_GROUP_WHITELIST.remove(group_id_str)
     return True
 
 def get_group_whitelist() -> Set[str]:

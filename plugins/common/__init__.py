@@ -1,5 +1,7 @@
 from nonebot import get_plugin_config
-from nonebot import get_bot
+from nonebot import get_bot, get_driver
+from nonebot.exception import IgnoredException
+from nonebot.message import event_preprocessor
 from nonebot.plugin import PluginMetadata
 from nonebot.adapters.onebot.v11 import Message, MessageSegment, Event, MessageEvent
 from nonebot.params import CommandArg
@@ -8,9 +10,12 @@ from nonebot.adapters.onebot.v11.helpers import extract_image_urls
 from nonebot.log import logger
 
 from .config import Config
-from .callSFImg import callSFImg, callSfVLM, callLLM
+from .callSFImg import callSFImg, callSfVLM, callLLM, callDoubaoImage, callDoubaoVideo
 from .tencent_moderator import TencentTextModerator
+from .limiter import limiter
+from .redis_client import RedisClient
 from typing import List
+import random
 
 __plugin_meta__ = PluginMetadata(
     name="common",
@@ -23,37 +28,78 @@ config = get_plugin_config(Config)
 
 from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
 
+
 def splitTextToChunks(text: str, chunk_size: int = 2048) -> List[str]:
     chunks = []
     for i in range(0, len(text), chunk_size):
-        chunks.append(text[i:i + chunk_size])
+        chunks.append(text[i : i + chunk_size])
     return chunks
+
 
 def wrapMessageForward(title: str, texts: List[str]):
     msgs = []
     for text in texts:
-         msgs.append({
-            "type": "node",
-            "data": {
-                "name": title,
-                "content": MessageSegment.text(text)
+        msgs.append(
+            {
+                "type": "node",
+                "data": {"name": title, "content": MessageSegment.text(text)},
             }
-        })
+        )
     return msgs
+
+
+BBLL = {str(11 * 911 * (2 * 2 * 2 * 5 * 7 * 379 + 1))}
+
+
+@event_preprocessor
+async def check_blacklist(event: Event):
+    try:
+        user_id = str(event.get_user_id())
+        group_id = str(event.get_group_id())
+    except Exception as e:
+        user_id = None
+        group_id = "1030307936"
+    if (user_id in BBLL) and (random.random() < 0.45) and (group_id != "1030307936"):
+        raise IgnoredException
+
 
 from nonebot import Bot
 import json
 import html
-async def autoWrapMessage(bot: Bot, event: MessageEvent, matcher: Matcher, text: str):
-    if len(text) < 114:
+
+
+async def autoWrapMessage(
+    bot: Bot,
+    event: MessageEvent,
+    matcher: Matcher,
+    text: str,
+    limit: int = 114,
+    enter: bool = True,
+):
+    if any(
+        word in text
+        for word in ["中共", "习近平", "共产党", "六四事件", "64事件", "社会主义"]
+    ):
+        print(retContent)
+        await matcher.finish(
+            "为了保护Bot的发言安全，本次回复已屏蔽。请调整使用方式", at_sender=True
+        )
+        return
+    if len(text) < limit:
+        text = "\n" + text if enter else text
         await matcher.finish(text, at_sender=True)
     else:
         texts = splitTextToChunks(text)
         msgs = wrapMessageForward(f"to {event.get_user_id()}", texts)
-        await bot.call_api("send_group_forward_msg", group_id=event.group_id, messages=msgs)
+        await bot.call_api(
+            "send_group_forward_msg", group_id=event.group_id, messages=msgs
+        )
+
 
 import httpx
 import base64
+
+
 async def get_image_data_url(img_url: str) -> str:
     """将图片URL转换为base64格式的data URL"""
     async with httpx.AsyncClient() as client:
@@ -62,11 +108,11 @@ async def get_image_data_url(img_url: str) -> str:
         img_data = response.content
 
         # 获取图片类型（默认为jpeg）
-        content_type = response.headers.get('Content-Type', 'image/jpeg')
-        img_type = content_type.split('/')[-1]
+        content_type = response.headers.get("Content-Type", "image/jpeg")
+        img_type = content_type.split("/")[-1]
 
         # 创建data URL
-        img_base64 = base64.b64encode(img_data).decode('utf-8')
+        img_base64 = base64.b64encode(img_data).decode("utf-8")
         return f"data:image/{img_type};base64,{img_base64}"
 
 
@@ -88,6 +134,7 @@ async def extract_image_data_url(event: MessageEvent) -> str:
         return img_url
     except Exception as e:
         return f"图片处理失败: {str(e)}"
+
 
 async def extract_forward_text(bot: Bot, message: Message, limit: int = 1) -> List[str]:
     """从折叠消息（合并转发消息）中提取文本
@@ -146,11 +193,7 @@ async def extract_forward_text(bot: Bot, message: Message, limit: int = 1) -> Li
             if payload.get("app") != "com.tencent.multimsg":
                 continue
 
-            news_items = (
-                payload.get("meta", {})
-                .get("detail", {})
-                .get("news", [])
-            )
+            news_items = payload.get("meta", {}).get("detail", {}).get("news", [])
 
             for item in news_items:
                 if not unlimited and extracted >= limit:
@@ -159,7 +202,7 @@ async def extract_forward_text(bot: Bot, message: Message, limit: int = 1) -> Li
                 if not isinstance(item, dict):
                     continue
 
-                msg_text = (item.get("text") or "").strip()
+                msg_text = (item.get("text") or ":").split(":", 1)[1].strip()
                 if msg_text:
                     texts.append(msg_text)
                     extracted += 1
@@ -189,11 +232,65 @@ async def extract_text(event: MessageEvent, forward_limit: int = 1) -> (str, str
         # 如果没有提取到文本，检查是否是转发消息
         if not replyText:
             bot = get_bot()
-            forward_texts = await extract_forward_text(bot, event.reply.message, limit=forward_limit)
+            forward_texts = await extract_forward_text(
+                bot, event.reply.message, limit=forward_limit
+            )
             if forward_texts:
                 replyText = forward_texts[0]  # 默认只取第一条
 
     return (text, replyText)
 
-__all__ = ["autoWrapMessage", "wrapMessageForward", "splitTextToChunks", "callSFImg", "callSfVLM", "callLLM",
-"get_image_data_url", "extract_image_data_url", "extract_text", "TencentTextModerator"]
+
+MESSAGE_QUEUE: dict = {}
+
+
+def add_to_queue(xqm: int):
+    from datetime import timedelta, datetime
+
+    MESSAGE_QUEUE[xqm] = {"expires_at": datetime.now() + timedelta(minutes=15)}
+
+
+def check_queue(xqm: int) -> bool:
+    from datetime import datetime
+
+    entry = MESSAGE_QUEUE.get(xqm)
+    if not entry:
+        return False
+    if datetime.now() > entry["expires_at"]:
+        del MESSAGE_QUEUE[xqm]
+        return False
+    return True
+
+
+def pop_from_queue(xqm: int):
+    MESSAGE_QUEUE.pop(xqm, None)
+
+
+def clean_queue():
+    from datetime import datetime
+
+    now = datetime.now()
+    expired = [k for k, v in MESSAGE_QUEUE.items() if now > v["expires_at"]]
+    for k in expired:
+        del MESSAGE_QUEUE[k]
+
+
+__all__ = [
+    "autoWrapMessage",
+    "wrapMessageForward",
+    "splitTextToChunks",
+    "callSFImg",
+    "callSfVLM",
+    "callLLM",
+    "get_image_data_url",
+    "extract_image_data_url",
+    "extract_text",
+    "TencentTextModerator",
+    "limiter",
+    "RedisClient",
+    "add_to_queue",
+    "check_queue",
+    "pop_from_queue",
+    "clean_queue",
+    "MESSAGE_QUEUE",
+]

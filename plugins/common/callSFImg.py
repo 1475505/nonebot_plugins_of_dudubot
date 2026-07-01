@@ -3,7 +3,7 @@ import aiohttp
 import asyncio
 from openai import AsyncOpenAI
 
-async def callDoubaoVideo(prompt, image_url=None, model="doubao-seedance-1-0-pro-250528"):
+async def callDoubaoVideo(prompt, image_url=None, model="doubao-seedance-1-5-pro-251215"):
     """
     Call Doubao (Volcengine Ark) video generation API
     
@@ -41,7 +41,7 @@ async def callDoubaoVideo(prompt, image_url=None, model="doubao-seedance-1-0-pro
         "content": content
     }
     
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600)) as session:
         # 1. Create Task
         async with session.post(url, json=payload, headers=headers) as response:
             result = await response.json()
@@ -51,7 +51,7 @@ async def callDoubaoVideo(prompt, image_url=None, model="doubao-seedance-1-0-pro
             task_id = result["id"]
             
         # 2. Poll Task
-        for _ in range(60): # Poll for 5 minutes (5s * 60)
+        for _ in range(120): # Poll for 10 minutes (5s * 120)
             await asyncio.sleep(5)
             async with session.get(f"{url}/{task_id}", headers=headers) as response:
                 result = await response.json()
@@ -107,12 +107,13 @@ async def callDoubaoImage(prompt, model="doubao-seedream-4-0-250828", image_url=
         "watermark": False
     }
 
-    if not image_url:
+    if image_url:
         extra_body["image"] = image_url
         
     client = AsyncOpenAI(
         api_key=token,
         base_url=url,
+        timeout=600.0,
     )
     
     try:
@@ -158,7 +159,7 @@ async def callSFImg(prompt, model="Qwen/Qwen-Image-Edit-2509", image=None):
         "Content-Type": "application/json"
     }
     
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600)) as session:
         async with session.post(url, json=payload, headers=headers) as response:
             result = await response.json()
             
@@ -167,6 +168,7 @@ async def callSFImg(prompt, model="Qwen/Qwen-Image-Edit-2509", image=None):
             
             return result["images"][0]["url"]
 
+# 火山引擎已经兼容,img_field和txt_field参数已经没有必要了
 async def callSfVLM(prompt, image_urls=None, model="deepseek-ai/DeepSeek-OCR", 
 img_field="image_url", txt_field="text", 
 url = "https://api.siliconflow.cn/v1",
@@ -217,7 +219,7 @@ token = os.getenv("SF_API_KEY")):
 
     url = url + "/chat/completions"
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600)) as session:
         async with session.post(url, json=payload, headers=headers) as response:
             result = await response.json()
 
@@ -279,8 +281,8 @@ token = os.getenv("SF_API_KEY")):
             raise Exception(f"Invalid response from SF VLM API: {err}")
 
 
-async def callLLM(prompt, model="z-ai/glm-4.5-air:free", json_output=False, url="http://170.106.83.133:8999/v1/chat/completions",
-    token="sk-1234567"):
+async def callLLM(prompt, model="z-ai/glm-4.5-air:free", json_output=False, url="http://xxx/v1/chat/completions",
+    token="sk-xxx"):
     """
     Args:
         prompt (str): The text prompt for LLM
@@ -306,7 +308,7 @@ async def callLLM(prompt, model="z-ai/glm-4.5-air:free", json_output=False, url=
         "Content-Type": "application/json"
     }
 
-    async with aiohttp.ClientSession() as session:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=600)) as session:
         async with session.post(url, json=payload, headers=headers) as response:
             result = await response.json()
 

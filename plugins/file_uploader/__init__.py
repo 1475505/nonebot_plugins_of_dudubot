@@ -1,9 +1,14 @@
 from nonebot import get_app, get_driver
 from nonebot.plugin import PluginMetadata
 from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 import os
 import difflib
+import json
+import asyncio
+from plugins.gitcg_share_code_to_image.fuzzymatch import match_id
+import plugins.gitcg_share_code_to_image as gitcg
 
 __plugin_meta__ = PluginMetadata(
     name="文件上传插件",
@@ -13,6 +18,15 @@ __plugin_meta__ = PluginMetadata(
 
 app = get_app()
 midi_app = FastAPI()
+
+midi_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @midi_app.post("/midi")
 async def upload_file(file: UploadFile = File(...)):
@@ -45,7 +59,7 @@ import logging
 # 配置腾讯云COS
 secret_id = ''  # 替换为您的 SecretId
 secret_key = ''  # 替换为您的 SecretKey
-region = ''  # 替换为您的地域
+region = 'ap-singapore'  # 替换为您的地域
 bucket = '' # 替换为您的存储桶名称
 
 # 初始化COS客户端
@@ -73,7 +87,7 @@ async def upload_7s_to_cos(file: UploadFile = File(...), folder: str = Form(""))
         
         # 构建访问URL
         file_url = f"https://{bucket}.cos.{region}.myqcloud.com/{key}"
-        access_url = f"https://7simg.070077.xyz/{key}"
+        access_url = f"https://xxx/{key}"
         return {"filename": file.filename, "folder": folder, "message": "文件上传成功", "url": file_url, "access_url": access_url}
     except Exception as e:
         return {"error": str(e)}
@@ -186,6 +200,7 @@ from typing import Optional
 import json
 from datetime import datetime
 
+SAVE_DIR = "/root/nb/resources/guyulogs/"
 @midi_app.post("/report")
 async def _(req: Request, content_disposition: Optional[str] = Header(None)):
     json_body = await req.json()
@@ -197,7 +212,6 @@ async def _(req: Request, content_disposition: Optional[str] = Header(None)):
             if part.startswith("filename="):
                 filename = part.split('=')[1].strip().strip('"')
                 break
-    SAVE_DIR = "/root/nb/resources/logs"
     filepath = os.path.join(SAVE_DIR, filename)
      # Check if file exists and append timestamp if needed
     if os.path.exists(filepath):
@@ -212,8 +226,8 @@ async def _(req: Request, content_disposition: Optional[str] = Header(None)):
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(json_body, f, ensure_ascii=False, indent=4)
     bot: Bot = list(get_driver().bots.values())[0] # Get the first available bot instance
-    group_id = -1
-    msg = "http://1.2.3.4:1234/upload/getLog?file=" + filename
+    group_id = ?
+    msg = "http://xxx/upload/getLog?file=" + filename
     await bot.send_msg(group_id=group_id, message=msg, message_type="group")
 
 
@@ -221,7 +235,7 @@ async def _(req: Request, content_disposition: Optional[str] = Header(None)):
 async def get_file2(file: str = None):
     if not file:
         raise HTTPException(status_code=400, detail="请指定文件名")
-    BASE_DIR = Path("/root/nb/resources/logs/")
+    BASE_DIR = Path(SAVE_DIR)
     file_path = BASE_DIR / file
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="文件不存在")
@@ -237,9 +251,26 @@ async def get_file2(file: str = None):
         filename=file_path.name
     )
 
+@midi_app.get("/fuzzymatch")
+async def fuzzy_match_api(query: str):
+    try:
+        import plugins.gitcg_share_code_to_image as gitcg
+        namemap = gitcg.namemap
+    except Exception as e:
+        return {"error": f"Failed to get namemap: {e}"}
+    
+    result = match_id(query, namemap)
+    return result
+
 
 driver = get_driver()
 
 @driver.on_startup
 async def startup():
     driver.server_app.mount('/upload', midi_app)
+
+
+@app.get("/namemap")
+async def reload_namemap():
+    gitcg.namemap = await asyncio.to_thread(gitcg.load_namemap)
+    return {"message": "NameMap reloaded successfully"}
